@@ -589,8 +589,36 @@ class _HeroSkeleton extends StatelessWidget {
     return const Padding(
       padding: EdgeInsets.fromLTRB(16, 2, 16, 22),
       child: _SkeletonBlock(
-        height: 430,
+        height: 610,
         borderRadius: 34,
+      ),
+    );
+  }
+}
+
+class _HomeBrandBar extends StatelessWidget {
+  const _HomeBrandBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.zero,
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.tv_rounded, color: AppColors.text, size: 30),
+          const Spacer(),
+          Icon(
+            Icons.cast_rounded,
+            color: AppColors.text.withOpacity(0.82),
+            size: 24,
+          ),
+          const SizedBox(width: 16),
+          Icon(
+            Icons.account_circle_outlined,
+            color: AppColors.text.withOpacity(0.82),
+            size: 28,
+          ),
+        ],
       ),
     );
   }
@@ -727,8 +755,11 @@ class _AddonHeroCarousel extends StatelessWidget {
       return const SizedBox(height: 24);
     }
 
+    final double heroHeight =
+        (MediaQuery.sizeOf(context).height * 0.70).clamp(520.0, 680.0);
+
     return SizedBox(
-      height: 438,
+      height: heroHeight,
       child: Stack(
         children: <Widget>[
           PageView.builder(
@@ -737,22 +768,19 @@ class _AddonHeroCarousel extends StatelessWidget {
             onPageChanged: onPageChanged,
             itemBuilder: (BuildContext context, int index) {
               final AddonCatalogItem item = items[index];
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 16, 28),
-                child: _AddonHeroPanel(
-                  item: item,
-                  addon: addon,
-                  accent: accent,
-                  addonsService: addonsService,
-                  onTap: () => onOpen(item),
-                ),
+              return _AddonHeroPanel(
+                item: item,
+                addon: addon,
+                accent: accent,
+                addonsService: addonsService,
+                onTap: () => onOpen(item),
               );
             },
           ),
           Positioned(
             left: 0,
             right: 0,
-            bottom: 4,
+            bottom: 8,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List<Widget>.generate(
@@ -764,13 +792,19 @@ class _AddonHeroCarousel extends StatelessWidget {
                   height: 8,
                   decoration: BoxDecoration(
                     color: activeIndex == index
-                        ? accent
-                        : Colors.white.withOpacity(0.58),
+                        ? AppColors.text
+                        : Colors.white.withOpacity(0.52),
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
               ),
             ),
+          ),
+          const Positioned(
+            left: 22,
+            right: 18,
+            top: 14,
+            child: _HomeBrandBar(),
           ),
         ],
       ),
@@ -799,129 +833,106 @@ class _AddonHeroPanel extends StatelessWidget {
       addon,
       item.background ?? item.poster,
     );
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(34),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.black.withOpacity(0.24),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          if (imageUrl.isEmpty)
-            const ColoredBox(color: AppColors.cardBackground)
-          else
-            OptimizedNetworkImage(
-              url: imageUrl,
-              fit: BoxFit.cover,
-              cacheWidth: 900,
-              errorBuilder: (
-                BuildContext context,
-                Object error,
-                StackTrace? stackTrace,
-              ) {
-                return const ColoredBox(color: AppColors.cardBackground);
-              },
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: const BoxDecoration(color: AppColors.cardBackground),
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            if (imageUrl.isEmpty)
+              const ColoredBox(color: AppColors.cardBackground)
+            else
+              OptimizedNetworkImage(
+                url: imageUrl,
+                fit: BoxFit.cover,
+                cacheWidth: 900,
+                errorBuilder: (
+                  BuildContext context,
+                  Object error,
+                  StackTrace? stackTrace,
+                ) {
+                  return const ColoredBox(color: AppColors.cardBackground);
+                },
+              ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[
+                    Colors.black.withOpacity(0.22),
+                    Colors.black.withOpacity(0.42),
+                    Colors.black.withOpacity(0.94),
+                  ],
+                ),
+              ),
             ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  Colors.black.withOpacity(0.08),
-                  Colors.black.withOpacity(0.42),
-                  Colors.black.withOpacity(0.94),
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 34,
+              child: Column(
+                children: <Widget>[
+                  Text(
+                    item.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 36,
+                      height: 0.96,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    <String>[
+                      item.mediaType == 'tv' ? 'TV Show' : 'Movie',
+                      if ((item.releaseInfo ?? '').isNotEmpty)
+                        item.releaseInfo!,
+                    ].join('  •  '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: 260,
+                    child: FilledButton.icon(
+                      onPressed: onTap,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.text,
+                        foregroundColor: AppColors.background,
+                        shadowColor: accent.withOpacity(0.35),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                      label: const Text(
+                        'View Details',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
-          Positioned(
-            left: 22,
-            right: 22,
-            bottom: 24,
-            child: Column(
-              children: <Widget>[
-                Text(
-                  item.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 32,
-                    height: 0.98,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1.1,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  children: <Widget>[
-                    _HeroMeta(
-                      label: item.mediaType == 'tv' ? 'Series' : 'Movie',
-                    ),
-                    if ((item.releaseInfo ?? '').isNotEmpty)
-                      _HeroMeta(label: item.releaseInfo!),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                FilledButton(
-                  onPressed: onTap,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.text,
-                    foregroundColor: AppColors.background,
-                    shadowColor: accent.withOpacity(0.4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 34,
-                      vertical: 14,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  child: const Text(
-                    'View Details',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeroMeta extends StatelessWidget {
-  const _HeroMeta({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    if (label.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Text(
-      label,
-      style: const TextStyle(
-        color: AppColors.text,
-        fontSize: 13,
-        fontWeight: FontWeight.w800,
+          ],
+        ),
       ),
     );
   }
@@ -1033,10 +1044,10 @@ class _ContinueWatchingRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool posterStyle = settings.continueWatchingStyle == 'poster';
     return SizedBox(
-      height: posterStyle ? 194 : 166,
+      height: posterStyle ? 194 : 202,
       child: ListView.separated(
         cacheExtent: 700,
-        padding: const EdgeInsets.fromLTRB(16, 0, 24, 0),
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
@@ -1097,102 +1108,84 @@ class _GlanceContinueCard extends StatelessWidget {
         GestureDetector(
           onTap: onOpen,
           child: Container(
-            width: 330,
-            height: 150,
+            width: 350,
+            height: 184,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              color: Colors.white.withOpacity(0.07),
+              borderRadius: BorderRadius.circular(20),
+              color: AppColors.cardBackground,
               border: Border.all(color: Colors.white.withOpacity(0.10)),
             ),
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    SizedBox(
-                      width: 102,
-                      height: double.infinity,
-                      child: _HistoryArtwork(item: item, blur: blur),
+                _HistoryArtwork(item: item, blur: blur),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: <Color>[
+                        Colors.black.withOpacity(0.05),
+                        Colors.black.withOpacity(0.20),
+                        Colors.black.withOpacity(0.88),
+                      ],
+                      stops: const <double>[0, 0.42, 1],
                     ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
+                  ),
+                ),
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  bottom: 14,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          const Icon(
+                            Icons.play_arrow_rounded,
+                            color: AppColors.text,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
                               item.title,
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: AppColors.text,
                                 fontSize: 17,
-                                height: 1.05,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: -0.3,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: <Widget>[
-                                Expanded(
-                                  child: Text(
-                                    _subtitle(item),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: accent,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: const Text(
-                                    'Resume',
-                                    style: TextStyle(
-                                      color: AppColors.background,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _timeLeft(item),
-                              style: const TextStyle(
-                                color: AppColors.textSubtle,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const Spacer(),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(99),
-                              child: LinearProgressIndicator(
-                                minHeight: 4,
-                                value: (item.progress / 100).clamp(0, 1),
-                                color: accent,
-                                backgroundColor: Colors.white.withOpacity(0.14),
-                              ),
-                            ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${_subtitle(item)}  •  ${_timeLeft(item)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: LinearProgressIndicator(
+                          minHeight: 4,
+                          value: (item.progress / 100).clamp(0, 1),
+                          color: accent,
+                          backgroundColor: Colors.white.withOpacity(0.24),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

@@ -80,56 +80,45 @@ class _HomeShellState extends State<HomeShell> {
       ),
       _ShellTab(
         label: 'Settings',
-        icon: Icons.person_outline_rounded,
-        activeIcon: Icons.person_rounded,
+        icon: Icons.settings_outlined,
+        activeIcon: Icons.settings_rounded,
         builder: (_) => ProfileScreen(showBackButton: false),
       ),
     ];
 
     return Scaffold(
-      extendBody: true,
+      extendBody: false,
       backgroundColor: LayoutOptions.backgroundFor(_settings),
       body: tabs[_currentIndex].builder(context),
       bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-        child: DecoratedBox(
+        top: false,
+        child: Container(
+          height: 78,
           decoration: BoxDecoration(
-            color: Color.alphaBlend(
-              accent.withOpacity(0.08),
-              const Color(0xFF1B1B21),
+            color: LayoutOptions.backgroundFor(_settings),
+            border: Border(
+              top: BorderSide(color: Colors.white.withOpacity(0.10)),
             ),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: accent.withOpacity(0.14)),
-            boxShadow: const <BoxShadow>[
-              BoxShadow(
-                color: Color(0x3A000000),
-                blurRadius: 28,
-                offset: Offset(0, 12),
-              ),
-            ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              children: List<Widget>.generate(tabs.length, (int index) {
-                final _ShellTab tab = tabs[index];
-                final bool selected = index == _currentIndex;
-                return Expanded(
-                  child: _FloatingNavItem(
-                    label: tab.label,
-                    icon: selected ? tab.activeIcon : tab.icon,
-                    selected: selected,
-                    accent: accent,
-                    onTap: () {
-                      setState(() {
-                        _currentIndex = index;
-                      });
-                      _loadSettings();
-                    },
-                  ),
-                );
-              }),
-            ),
+          child: Row(
+            children: List<Widget>.generate(tabs.length, (int index) {
+              final _ShellTab tab = tabs[index];
+              final bool selected = index == _currentIndex;
+              return Expanded(
+                child: _StreamedNavItem(
+                  label: tab.label,
+                  icon: selected ? tab.activeIcon : tab.icon,
+                  selected: selected,
+                  accent: accent,
+                  onTap: () {
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                    _loadSettings();
+                  },
+                ),
+              );
+            }),
           ),
         ),
       ),
@@ -137,8 +126,8 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-class _FloatingNavItem extends StatelessWidget {
-  const _FloatingNavItem({
+class _StreamedNavItem extends StatelessWidget {
+  const _StreamedNavItem({
     required this.label,
     required this.icon,
     required this.selected,
@@ -156,24 +145,23 @@ class _FloatingNavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.only(top: 8, bottom: 7),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
             AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
-              width: selected ? 40 : 28,
-              height: 22,
+              width: selected ? 54 : 42,
+              height: selected ? 30 : 28,
               decoration: BoxDecoration(
                 color: selected ? accent : Colors.transparent,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Icon(
                 icon,
-                size: 16,
+                size: selected ? 21 : 22,
                 color: selected ? AppColors.background : AppColors.textMuted,
               ),
             ),
@@ -181,9 +169,9 @@ class _FloatingNavItem extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                color: selected ? accent : AppColors.textSubtle,
-                fontSize: 11,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected ? AppColors.text : AppColors.textMuted,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
               ),
             ),
           ],

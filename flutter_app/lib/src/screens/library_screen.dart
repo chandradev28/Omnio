@@ -277,6 +277,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     else
                       _SavedLibrarySection(
                         favorites: _favorites,
+                        settings: _settings,
                         accent: accent,
                         onOpen: _openDetail,
                         onRemove: _removeFavorite,
@@ -411,12 +412,14 @@ class _LibraryModeChip extends StatelessWidget {
 class _SavedLibrarySection extends StatelessWidget {
   const _SavedLibrarySection({
     required this.favorites,
+    required this.settings,
     required this.accent,
     required this.onOpen,
     required this.onRemove,
   });
 
   final List<FavoriteItem> favorites;
+  final AppSettings settings;
   final Color accent;
   final ValueChanged<FavoriteItem> onOpen;
   final ValueChanged<FavoriteItem> onRemove;
@@ -453,6 +456,7 @@ class _SavedLibrarySection extends StatelessWidget {
             final FavoriteItem item = favorites[index];
             return _FavoriteCard(
               item: item,
+              settings: settings,
               accent: accent,
               onOpen: () => onOpen(item),
               onRemove: () => onRemove(item),
@@ -467,12 +471,14 @@ class _SavedLibrarySection extends StatelessWidget {
 class _FavoriteCard extends StatelessWidget {
   const _FavoriteCard({
     required this.item,
+    required this.settings,
     required this.accent,
     required this.onOpen,
     required this.onRemove,
   });
 
   final FavoriteItem item;
+  final AppSettings settings;
   final Color accent;
   final VoidCallback onOpen;
   final VoidCallback onRemove;
@@ -488,7 +494,9 @@ class _FavoriteCard extends StatelessWidget {
               Positioned.fill(
                 child: Material(
                   color: AppColors.cardBackground,
-                  borderRadius: BorderRadius.circular(AppLayout.cardRadius),
+                  borderRadius: BorderRadius.circular(
+                    LayoutOptions.posterRadius(settings),
+                  ),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: onOpen,

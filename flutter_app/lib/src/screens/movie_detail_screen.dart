@@ -622,65 +622,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           });
                         },
                       ),
-                      if (detail.cast.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 28),
-                        const _SectionTitle(title: 'Cast'),
-                        const SizedBox(height: 14),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          clipBehavior: Clip.none,
-                          child: Row(
-                            children: detail.cast
-                                .map(
-                                  (CastItem member) => Padding(
-                                    padding: const EdgeInsets.only(right: 18),
-                                    child: _CastCard(member: member),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                        ),
-                      ],
-                      if (detail.trailers.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 28),
-                        const Row(
-                          children: <Widget>[
-                            _SectionTitle(title: 'Trailers'),
-                            SizedBox(width: 16),
-                            _TrailerFilterChip(),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          clipBehavior: Clip.none,
-                          child: Row(
-                            children: detail.trailers
-                                .map(
-                                  (MediaTrailer trailer) => Padding(
-                                    padding: const EdgeInsets.only(right: 14),
-                                    child: _TrailerCard(
-                                      trailer: trailer,
-                                      onTap: () => _openTrailer(trailer),
-                                    ),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 28),
-                      _SectionTitle(
-                        title: isMovie ? 'Movie Details' : 'Show Details',
-                      ),
-                      const SizedBox(height: 12),
-                      _DetailsTable(detail: detail),
                       if (!isMovie &&
                           detail.seasons.any(
                             (SeasonSummary season) => season.seasonNumber > 0,
                           )) ...<Widget>[
                         const SizedBox(height: 30),
-                        const _SectionTitle(title: 'Seasons'),
+                        const _SectionTitle(
+                            title: 'Seasons', showChevron: true),
                         const SizedBox(height: 14),
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
@@ -705,11 +653,38 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           ),
                         ),
                       ],
+                      if (detail.trailers.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 28),
+                        const Row(
+                          children: <Widget>[
+                            _SectionTitle(title: 'Trailers', showChevron: true),
+                            SizedBox(width: 16),
+                            _TrailerFilterChip(),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          clipBehavior: Clip.none,
+                          child: Row(
+                            children: detail.trailers
+                                .map(
+                                  (MediaTrailer trailer) => Padding(
+                                    padding: const EdgeInsets.only(right: 14),
+                                    child: _TrailerCard(
+                                      trailer: trailer,
+                                      onTap: () => _openTrailer(trailer),
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                        ),
+                      ],
                       if (detail.similarItems.isNotEmpty) ...<Widget>[
                         const SizedBox(height: 30),
-                        _SectionTitle(
-                          title: 'Related ${isMovie ? 'movies' : 'shows'}',
-                        ),
+                        const _SectionTitle(
+                            title: 'Related', showChevron: true),
                         const SizedBox(height: 14),
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
@@ -727,6 +702,42 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 )
                                 .toList(growable: false),
                           ),
+                        ),
+                      ],
+                      if (detail.cast.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 30),
+                        const _SectionTitle(
+                          title: 'Cast & Crew',
+                          showChevron: true,
+                        ),
+                        const SizedBox(height: 14),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          clipBehavior: Clip.none,
+                          child: Row(
+                            children: detail.cast
+                                .map(
+                                  (CastItem member) => Padding(
+                                    padding: const EdgeInsets.only(right: 18),
+                                    child: _CastCard(member: member),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 30),
+                      const _SectionTitle(title: 'Information'),
+                      const SizedBox(height: 12),
+                      _DetailsTable(detail: detail),
+                      if ((detail.originalLanguage ?? '')
+                          .isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 28),
+                        const _SectionTitle(title: 'Languages'),
+                        const SizedBox(height: 10),
+                        _InfoTextBlock(
+                          label: 'Original audio',
+                          value: detail.originalLanguage!.toUpperCase(),
                         ),
                       ],
                       const SizedBox(height: 24),
@@ -1285,8 +1296,8 @@ class _DetailRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          SizedBox(
-            width: 118,
+          Expanded(
+            flex: 4,
             child: Text(
               label,
               style: const TextStyle(
@@ -1298,10 +1309,11 @@ class _DetailRow extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
+            flex: 5,
             child: Text(
               value,
               textAlign: TextAlign.right,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppColors.text,
@@ -1316,22 +1328,81 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title});
+class _InfoTextBlock extends StatelessWidget {
+  const _InfoTextBlock({
+    required this.label,
+    required this.value,
+  });
 
-  final String title;
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: const TextStyle(
-        color: AppColors.text,
-        fontSize: 24,
-        height: 1.0,
-        fontWeight: FontWeight.w900,
-        letterSpacing: -0.5,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.07)),
       ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, this.showChevron = false});
+
+  final String title;
+  final bool showChevron;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          title,
+          style: const TextStyle(
+            color: AppColors.text,
+            fontSize: 24,
+            height: 1.0,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.5,
+          ),
+        ),
+        if (showChevron) ...<Widget>[
+          const SizedBox(width: 6),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textMuted,
+            size: 24,
+          ),
+        ],
+      ],
     );
   }
 }

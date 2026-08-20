@@ -27,16 +27,19 @@ class OptimizedNetworkImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double ratio = MediaQuery.devicePixelRatioOf(context);
-    final int? resolvedCacheWidth =
-        cacheWidth ?? (width == null ? null : (width! * ratio).round());
-    final int? resolvedCacheHeight =
-        cacheHeight ?? (height == null ? null : (height! * ratio).round());
+    final double? finiteWidth = width != null && width!.isFinite ? width : null;
+    final double? finiteHeight =
+        height != null && height!.isFinite ? height : null;
+    final int? resolvedCacheWidth = cacheWidth ??
+        (finiteWidth == null ? null : (finiteWidth * ratio).round());
+    final int? resolvedCacheHeight = cacheHeight ??
+        (finiteHeight == null ? null : (finiteHeight * ratio).round());
 
     return Image.network(
       url,
       fit: fit,
-      width: width,
-      height: height,
+      width: finiteWidth,
+      height: finiteHeight,
       alignment: alignment,
       cacheWidth: resolvedCacheWidth,
       cacheHeight: resolvedCacheHeight,

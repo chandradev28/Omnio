@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../constants/layout.dart';
 import '../models/search_result.dart';
+import '../models/torbox_models.dart';
+import '../services/app_settings_repository.dart';
 import '../services/tmdb_image.dart';
 import '../services/tmdb_search_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/layout_options.dart';
+import '../widgets/optimized_network_image.dart';
 import 'movie_detail_screen.dart';
 
 enum SearchFilter { all, movie, tv }
@@ -15,9 +19,11 @@ class SearchScreen extends StatefulWidget {
   const SearchScreen({
     super.key,
     this.searchService = const TmdbSearchService(),
+    this.settingsRepository,
   });
 
   final SearchService searchService;
+  final AppSettingsRepository? settingsRepository;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -33,6 +39,25 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _hasSearched = false;
   SearchFilter _activeFilter = SearchFilter.all;
   int _searchVersion = 0;
+  AppSettings _settings = const AppSettings();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final AppSettings settings =
+        await (widget.settingsRepository ?? AppSettingsRepository())
+            .loadSettings();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _settings = settings;
+    });
+  }
 
   @override
   void dispose() {
@@ -163,15 +188,35 @@ class _SearchScreenState extends State<SearchScreen> {
                   sliver: SliverList(
                     delegate: SliverChildListDelegate(
                       <Widget>[
-                        const Text(
-                          'Search',
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.text,
-                          ),
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Search',
+                              style: TextStyle(
+                                fontSize: 38,
+                                height: 1,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -1.2,
+                                color: AppColors.text,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF9CA3AF),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.person_rounded,
+                                color: Color(0xFF30343B),
+                                size: 28,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 24),
                         _SearchInput(
                           controller: _controller,
                           focusNode: _focusNode,
@@ -243,15 +288,16 @@ class _SearchScreenState extends State<SearchScreen> {
                             itemCount: filteredResults.length,
                             gridDelegate:
                                 const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              mainAxisSpacing: 16,
+                              crossAxisCount: 3,
+                              mainAxisSpacing: 22,
                               crossAxisSpacing: 12,
-                              childAspectRatio: 165 / 231,
+                              childAspectRatio: 0.58,
                             ),
                             itemBuilder: (BuildContext context, int index) {
                               final SearchResult item = filteredResults[index];
                               return _SearchResultCard(
                                 item: item,
+                                settings: _settings,
                                 onTap: () => _openDetail(item),
                               );
                             },
@@ -531,118 +577,85 @@ class _RoundIcon extends StatelessWidget {
 class _SearchResultCard extends StatelessWidget {
   const _SearchResultCard({
     required this.item,
+    required this.settings,
     required this.onTap,
   });
 
   final SearchResult item;
+  final AppSettings settings;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final bool isMovie = item.mediaType == 'movie';
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              Image.network(
-                getImageUrl(item.posterPath, 'w342'),
-                fit: BoxFit.cover,
-                errorBuilder: (
-                  BuildContext context,
-                  Object error,
-                  StackTrace? stackTrace,
-                ) {
-                  return const ColoredBox(
-                    color: AppColors.cardBackground,
-                    child: Center(
-                      child: Icon(
-                        Icons.movie_creation_outlined,
-                        color: AppColors.textMuted,
-                        size: 36,
+    final String year = ((isMovie ? item.releaseDate : item.firstAirDate) ?? '')
+        .split('-')
+        .first;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(
+          LayoutOptions.posterRadius(settings),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(
+                  LayoutOptions.posterRadius(settings),
+                ),
+                child: OptimizedNetworkImage(
+                  url: getImageUrl(item.posterPath, 'w342'),
+                  fit: BoxFit.cover,
+                  cacheWidth: 360,
+                  errorBuilder: (
+                    BuildContext context,
+                    Object error,
+                    StackTrace? stackTrace,
+                  ) {
+                    return const ColoredBox(
+                      color: AppColors.cardBackground,
+                      child: Center(
+                        child: Icon(
+                          Icons.movie_creation_outlined,
+                          color: AppColors.textMuted,
+                          size: 30,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.9),
-                    ],
-                    stops: const <double>[0.35, 1],
+            ),
+            if (!settings.posterHideLabels) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                item.displayTitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text,
+                  height: 1.08,
+                ),
+              ),
+              if (year.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 4),
+                Text(
+                  year,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-              Positioned(
-                left: 10,
-                right: 10,
-                bottom: 10,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isMovie
-                            ? const Color(0xE6EF4444)
-                            : const Color(0xE63B82F6),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Icon(
-                            isMovie ? Icons.local_movies : Icons.live_tv,
-                            color: AppColors.text,
-                            size: 10,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isMovie ? 'Movie' : 'TV Series',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.text,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      item.displayTitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.text,
-                        height: 1.25,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              ],
             ],
-          ),
+          ],
         ),
       ),
     );
