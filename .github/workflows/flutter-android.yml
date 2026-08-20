@@ -52,6 +52,7 @@ jobs:
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
         run: >
           flutter build apk --debug --no-pub
+          --dart-define=APP_VERSION="$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)"
           --dart-define=TRAKT_CLIENT_ID="$TRAKT_CLIENT_ID"
           --dart-define=TRAKT_CLIENT_SECRET="$TRAKT_CLIENT_SECRET"
 
