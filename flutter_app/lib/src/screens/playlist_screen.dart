@@ -5,15 +5,16 @@ import '../models/playlist_movie.dart';
 import '../services/tmdb_image.dart';
 import '../services/tmdb_playlist_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/optimized_network_image.dart';
 import 'movie_detail_screen.dart';
 
 class PlaylistScreen extends StatefulWidget {
   const PlaylistScreen({
     super.key,
-    this.playlistService = const TmdbPlaylistService(),
+    this.playlistService,
   });
 
-  final PlaylistService playlistService;
+  final PlaylistService? playlistService;
 
   @override
   State<PlaylistScreen> createState() => _PlaylistScreenState();
@@ -66,6 +67,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   ];
 
   late final PageController _pageController;
+  late final PlaylistService _playlistService;
   _ProviderOption _activeProvider = _providers.first;
   List<PlaylistMovie> _movies = const <PlaylistMovie>[];
   final Map<int, List<PlaylistMovie>> _providerCache =
@@ -77,6 +79,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   @override
   void initState() {
     super.initState();
+    _playlistService = widget.playlistService ?? TmdbPlaylistService();
     _pageController = PageController(viewportFraction: 0.78);
     _loadMoviesForProvider(_activeProvider);
   }
@@ -99,7 +102,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 
     try {
       final List<PlaylistMovie> movies =
-          await widget.playlistService.getMoviesByProvider(provider.providerId);
+          await _playlistService.getMoviesByProvider(provider.providerId);
 
       if (!mounted || requestVersion != _requestVersion) {
         return;
@@ -405,9 +408,9 @@ class _PlaylistBackdrop extends StatelessWidget {
         if (movie != null)
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
-            child: Image.network(
+            child: OptimizedNetworkImage(
               key: ValueKey<int>(movie!.id),
-              getImageUrl(movie!.posterPath, 'w780'),
+              url: getImageUrl(movie!.posterPath, 'w780'),
               fit: BoxFit.cover,
               errorBuilder: (
                 BuildContext context,
@@ -469,8 +472,8 @@ class _PlaylistCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
-                    Image.network(
-                      getImageUrl(movie.posterPath, 'w500'),
+                    OptimizedNetworkImage(
+                      url: getImageUrl(movie.posterPath, 'w500'),
                       fit: BoxFit.cover,
                       errorBuilder: (
                         BuildContext context,

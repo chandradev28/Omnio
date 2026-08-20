@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/tmdb_image.dart';
+
 class OptimizedNetworkImage extends StatelessWidget {
   const OptimizedNetworkImage({
     super.key,
@@ -35,8 +37,10 @@ class OptimizedNetworkImage extends StatelessWidget {
     final int? resolvedCacheHeight = cacheHeight ??
         (finiteHeight == null ? null : (finiteHeight * ratio).round());
 
-    return Image.network(
-      url,
+    final List<String> candidates = getImageCandidates(url);
+    return _buildImage(
+      candidates,
+      0,
       fit: fit,
       width: finiteWidth,
       height: finiteHeight,
@@ -44,8 +48,54 @@ class OptimizedNetworkImage extends StatelessWidget {
       cacheWidth: resolvedCacheWidth,
       cacheHeight: resolvedCacheHeight,
       filterQuality: filterQuality,
-      gaplessPlayback: true,
       errorBuilder: errorBuilder,
+    );
+  }
+
+  Widget _buildImage(
+    List<String> candidates,
+    int index, {
+    required BoxFit? fit,
+    required double? width,
+    required double? height,
+    required AlignmentGeometry alignment,
+    required int? cacheWidth,
+    required int? cacheHeight,
+    required FilterQuality filterQuality,
+    required ImageErrorWidgetBuilder? errorBuilder,
+  }) {
+    return Image.network(
+      candidates[index],
+      fit: fit,
+      width: width,
+      height: height,
+      alignment: alignment,
+      cacheWidth: cacheWidth,
+      cacheHeight: cacheHeight,
+      filterQuality: filterQuality,
+      gaplessPlayback: true,
+      errorBuilder: (
+        BuildContext context,
+        Object error,
+        StackTrace? stackTrace,
+      ) {
+        if (index + 1 < candidates.length) {
+          return _buildImage(
+            candidates,
+            index + 1,
+            fit: fit,
+            width: width,
+            height: height,
+            alignment: alignment,
+            cacheWidth: cacheWidth,
+            cacheHeight: cacheHeight,
+            filterQuality: filterQuality,
+            errorBuilder: errorBuilder,
+          );
+        }
+        return errorBuilder?.call(context, error, stackTrace) ??
+            const SizedBox.shrink();
+      },
     );
   }
 }

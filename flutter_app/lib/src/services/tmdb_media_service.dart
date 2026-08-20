@@ -1,9 +1,7 @@
-import 'dart:convert';
-import 'dart:io';
-
 import '../models/torbox_models.dart';
 import '../models/tmdb_media_models.dart';
 import 'app_settings_repository.dart';
+import 'tmdb_http_service.dart';
 
 abstract class MediaCatalogService {
   Future<List<MediaSummary>> getTrendingMovies();
@@ -20,11 +18,8 @@ class TmdbMediaService implements MediaCatalogService {
     AppSettingsRepository? settingsRepository,
   }) : _settingsRepository = settingsRepository ?? AppSettingsRepository();
 
-  static const String _apiKey = 'cd45143a9ade518a4381e765c719e68b';
-  static const String _baseHost = 'api.themoviedb.org';
-  static const int _maxAttempts = 3;
-
   final AppSettingsRepository _settingsRepository;
+  final TmdbHttpService _httpService = TmdbHttpService();
 
   @override
   Future<List<MediaSummary>> getTrendingMovies() async {
@@ -197,66 +192,11 @@ class TmdbMediaService implements MediaCatalogService {
     Map<String, String> params = const <String, String>{},
     AppSettings? settings,
   ]) async {
-    final AppSettings effectiveSettings =
-        settings ?? await _settingsRepository.loadSettings();
-    final Uri uri = Uri.https(
-      _baseHost,
+    return _httpService.getJson(
       path,
-      <String, String>{
-        'api_key': _effectiveApiKey(effectiveSettings),
-        ...params,
-      },
+      params: params,
+      settings: settings,
     );
-
-    Object? lastError;
-    for (int attempt = 1; attempt <= _maxAttempts; attempt += 1) {
-      try {
-        return await _fetchOnce(uri);
-      } catch (error) {
-        lastError = error;
-        if (attempt == _maxAttempts) {
-          break;
-        }
-        await Future<void>.delayed(Duration(milliseconds: 250 * attempt));
-      }
-    }
-
-    throw lastError ?? HttpException('TMDB request failed.', uri: uri);
-  }
-
-  String _effectiveApiKey(AppSettings settings) {
-    final String personal = (settings.tmdbApiKey ?? '').trim();
-    return personal.isEmpty ? _apiKey : personal;
-  }
-
-  Future<Map<String, dynamic>> _fetchOnce(Uri uri) async {
-    final HttpClient client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
-
-    try {
-      final HttpClientRequest request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(
-        HttpHeaders.userAgentHeader,
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      );
-
-      final HttpClientResponse response =
-          await request.close().timeout(const Duration(seconds: 12));
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'TMDB request failed with status ${response.statusCode}',
-          uri: uri,
-        );
-      }
-
-      final String raw = await response.transform(utf8.decoder).join();
-      return jsonDecode(raw) as Map<String, dynamic>;
-    } finally {
-      client.close(force: true);
-    }
   }
 
   List<MediaSummary> _readMediaSummaryList(Map<String, dynamic> payload) {

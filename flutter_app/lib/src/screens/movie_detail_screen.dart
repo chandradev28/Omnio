@@ -190,9 +190,11 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       title: addon.title.trim().isNotEmpty ? addon.title : enriched.title,
       overview:
           addon.overview.trim().isNotEmpty ? addon.overview : enriched.overview,
-      posterPath: addon.posterPath ?? enriched.posterPath,
-      backdropPath: addon.backdropPath ?? enriched.backdropPath,
-      logoPath: addon.logoPath ?? enriched.logoPath,
+      // Prefer TMDB artwork for the polished poster/backdrop treatment. Addon
+      // artwork remains a fallback when TMDB has no image for the title.
+      posterPath: enriched.posterPath ?? addon.posterPath,
+      backdropPath: enriched.backdropPath ?? addon.backdropPath,
+      logoPath: enriched.logoPath ?? addon.logoPath,
       voteAverage:
           enriched.voteAverage > 0 ? enriched.voteAverage : addon.voteAverage,
       voteCount: enriched.voteCount > 0 ? enriched.voteCount : addon.voteCount,

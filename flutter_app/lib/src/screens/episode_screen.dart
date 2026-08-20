@@ -4,6 +4,7 @@ import '../models/tmdb_media_models.dart';
 import '../services/tmdb_image.dart';
 import '../services/tmdb_media_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/optimized_network_image.dart';
 import 'streamed_sources_screen.dart';
 
 class EpisodeScreen extends StatefulWidget {
@@ -209,8 +210,8 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                                     ),
                                   ),
                                 )
-                              : Image.network(
-                                  getImageUrl(
+                              : OptimizedNetworkImage(
+                                  url: getImageUrl(
                                       widget.posterPath ?? show.posterPath,
                                       'w342'),
                                   fit: BoxFit.cover,

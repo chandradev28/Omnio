@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/tmdb_image.dart';
 import '../theme/app_colors.dart';
+import 'optimized_network_image.dart';
 
 class TitleLogo extends StatelessWidget {
   const TitleLogo({
@@ -32,9 +33,10 @@ class TitleLogo extends StatelessWidget {
           maxWidth: maxLogoWidth,
           maxHeight: logoHeight,
         ),
-        child: Image.network(
-          getImageUrl(path, 'w500'),
+        child: OptimizedNetworkImage(
+          url: getImageUrl(path, 'w500'),
           fit: BoxFit.contain,
+          cacheWidth: 900,
           errorBuilder: (
             BuildContext context,
             Object error,

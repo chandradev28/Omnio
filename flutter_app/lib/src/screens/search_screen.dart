@@ -18,11 +18,11 @@ enum SearchFilter { all, movie, tv }
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
     super.key,
-    this.searchService = const TmdbSearchService(),
+    this.searchService,
     this.settingsRepository,
   });
 
-  final SearchService searchService;
+  final SearchService? searchService;
   final AppSettingsRepository? settingsRepository;
 
   @override
@@ -44,8 +44,14 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _searchService = widget.searchService ??
+        TmdbSearchService(
+          settingsRepository: widget.settingsRepository,
+        );
     _loadSettings();
   }
+
+  late final SearchService _searchService;
 
   Future<void> _loadSettings() async {
     final AppSettings settings =
@@ -99,7 +105,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       final List<SearchResult> results =
-          await widget.searchService.searchMulti(trimmed);
+          await _searchService.searchMulti(trimmed);
 
       if (!mounted || requestVersion != _searchVersion) {
         return;
@@ -143,6 +149,12 @@ class _SearchScreenState extends State<SearchScreen> {
         builder: (BuildContext context) => MovieDetailScreen(
           id: item.id,
           mediaType: item.mediaType,
+          fallbackTitle: item.displayTitle,
+          fallbackPosterPath: item.posterPath,
+          fallbackBackdropPath: item.backdropPath,
+          fallbackOverview: item.overview,
+          fallbackReleaseInfo:
+              item.mediaType == 'tv' ? item.firstAirDate : item.releaseDate,
         ),
       ),
     );
