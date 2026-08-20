@@ -24,5 +24,9 @@ void main() {
     expect(find.text('Connected Services'), findsNothing);
     expect(find.byKey(const ValueKey<String>('torbox-api-key-field')),
         findsNothing);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -1200));
+    await tester.pumpAndSettle();
+    expect(find.text('Check for updates'), findsOneWidget);
   });
 }

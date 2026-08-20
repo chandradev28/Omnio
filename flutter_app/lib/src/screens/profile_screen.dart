@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/torbox_models.dart';
 import '../services/app_settings_repository.dart';
+import '../services/app_update_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/layout_options.dart';
+import '../widgets/app_update_dialog.dart';
 import 'addons_screen.dart';
 import 'integrations_screen.dart';
 import 'layout_screen.dart';
@@ -27,7 +29,9 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final AppUpdateService _updateService = AppUpdateService();
   AppSettings _settings = const AppSettings();
+  bool _checkingForUpdate = false;
 
   Color get _accent => LayoutOptions.accentFor(_settings);
 
@@ -123,13 +127,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _checkForUpdates() async {
+    if (_checkingForUpdate) {
+      return;
+    }
+    setState(() {
+      _checkingForUpdate = true;
+    });
+    try {
+      final AppUpdateInfo? update = await _updateService.checkForUpdate();
+      if (!mounted) {
+        return;
+      }
+      if (update == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You are using the latest version.')),
+        );
+      } else {
+        await showAppUpdateDialog(
+          context: context,
+          updateService: _updateService,
+          update: update,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not check for updates. Check your internet connection.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checkingForUpdate = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool showGeneral = _matchesSettingsSearch(
       'general layout content discovery addons downloads playback streams badges integrations notifications torboxers',
     );
     final bool showAbout = _matchesSettingsSearch(
-      'about supporters contributors',
+      'about supporters contributors updates update version',
     );
 
     return Scaffold(
@@ -257,6 +303,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     subtitle: 'Open recognition and project credits',
                     accent: _accent,
                     onTap: () => _showPlaceholder('Supporters & Contributors'),
+                  ),
+                  _SettingsActionTile(
+                    icon: Icons.system_update_rounded,
+                    title: 'Check for updates',
+                    subtitle: _checkingForUpdate
+                        ? 'Checking for a newer version...'
+                        : 'Look for the latest Streamed APK',
+                    accent: _accent,
+                    onTap: _checkingForUpdate ? null : _checkForUpdates,
                   ),
                 ],
               ),
