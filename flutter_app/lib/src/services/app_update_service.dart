@@ -111,7 +111,7 @@ class AppUpdateService {
       '_',
     );
     final File apkFile = File(
-      '${temporaryDirectory.path}${Platform.pathSeparator}streamed-$safeVersion.apk',
+      '${temporaryDirectory.path}${Platform.pathSeparator}omnio-$safeVersion.apk',
     );
     final IOSink sink = apkFile.openWrite();
     final int? contentLength =
