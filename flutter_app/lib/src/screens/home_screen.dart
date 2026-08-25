@@ -871,7 +871,7 @@ class _AddonHeroPanel extends StatelessWidget {
               OptimizedNetworkImage(
                 url: imageUrl,
                 fit: BoxFit.cover,
-                cacheWidth: 900,
+                cacheWidth: 1440,
                 errorBuilder: (
                   BuildContext context,
                   Object error,
@@ -1790,7 +1790,7 @@ class _CatalogPosterCard extends StatelessWidget {
                   : OptimizedNetworkImage(
                       url: posterUrl,
                       fit: BoxFit.cover,
-                      cacheWidth: (width * 3).round(),
+                      cacheWidth: (width * 4).round(),
                       errorBuilder: (
                         BuildContext context,
                         Object error,

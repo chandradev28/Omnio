@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -66,6 +68,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool _showFullDescription = false;
   bool _isFavorited = false;
   bool _showPinnedTitle = false;
+  int? _selectedSeasonNumber;
+  List<EpisodeItem> _episodes = const <EpisodeItem>[];
+  bool _loadingEpisodes = false;
+  int _episodeRequest = 0;
 
   @override
   void initState() {
@@ -111,6 +117,15 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         _loading = false;
       });
       _loadExternalRatings(detail);
+      if (detail.mediaType == 'tv') {
+        final List<SeasonSummary> seasons = detail.seasons
+            .where((SeasonSummary season) => season.seasonNumber > 0)
+            .toList(growable: false);
+        if (seasons.isNotEmpty) {
+          _selectedSeasonNumber ??= seasons.first.seasonNumber;
+          unawaited(_loadEpisodes(_selectedSeasonNumber!));
+        }
+      }
     } catch (_) {
       if (retryCount > 0) {
         final int delayMs = 400 * (_initialRetryCount - retryCount + 1);
@@ -343,6 +358,39 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     });
   }
 
+  Future<void> _loadEpisodes(int seasonNumber) async {
+    final MediaDetail? detail = _detail;
+    if (detail == null || detail.id <= 0 || detail.mediaType != 'tv') {
+      return;
+    }
+
+    final int request = ++_episodeRequest;
+    setState(() {
+      _selectedSeasonNumber = seasonNumber;
+      _loadingEpisodes = true;
+    });
+
+    try {
+      final List<EpisodeItem> episodes =
+          await widget.mediaService.getSeasonEpisodes(detail.id, seasonNumber);
+      if (!mounted || request != _episodeRequest) {
+        return;
+      }
+      setState(() {
+        _episodes = episodes;
+        _loadingEpisodes = false;
+      });
+    } catch (_) {
+      if (!mounted || request != _episodeRequest) {
+        return;
+      }
+      setState(() {
+        _episodes = const <EpisodeItem>[];
+        _loadingEpisodes = false;
+      });
+    }
+  }
+
   Future<void> _loadFavoriteState() async {
     final bool favorited = await widget.favoritesRepository.isFavorite(
       widget.id,
@@ -392,7 +440,12 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }
 
     if (detail.mediaType == 'tv') {
-      if (detail.id <= 0 && (detail.imdbId ?? '').isNotEmpty) {
+      final EpisodeItem? firstEpisode =
+          _episodes.cast<EpisodeItem?>().firstWhere(
+                (EpisodeItem? episode) => episode?.episodeNumber == 1,
+                orElse: () => null,
+              );
+      if ((detail.imdbId ?? '').isNotEmpty) {
         Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
             builder: (BuildContext context) => OmnioSourcesScreen(
@@ -401,9 +454,21 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               posterPath: detail.posterPath ?? detail.backdropPath,
               mediaType: detail.mediaType,
               imdbId: detail.imdbId!,
-              seasonNumber: 1,
-              episodeNumber: 1,
+              tmdbId: detail.id > 0 ? detail.id : null,
+              seasonNumber:
+                  firstEpisode?.seasonNumber ?? _selectedSeasonNumber ?? 1,
+              episodeNumber: firstEpisode?.episodeNumber ?? 1,
+              episodeName: firstEpisode?.name,
             ),
+          ),
+        );
+        return;
+      }
+
+      if (detail.id <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This show is missing an ID for episode playback.'),
           ),
         );
         return;
@@ -475,14 +540,40 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       return;
     }
 
+    unawaited(_loadEpisodes(season.seasonNumber));
+  }
+
+  void _openEpisode(EpisodeItem episode) {
+    final MediaDetail? detail = _detail;
+    if (detail == null) {
+      return;
+    }
+
+    if ((detail.imdbId ?? '').isEmpty) {
+      _openSeason(
+        SeasonSummary(
+          id: 0,
+          name: 'Season ${episode.seasonNumber}',
+          posterPath: detail.posterPath,
+          seasonNumber: episode.seasonNumber,
+          episodeCount: 0,
+        ),
+      );
+      return;
+    }
+
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => EpisodeScreen(
-          tvId: detail.id,
-          initialSeason: season.seasonNumber,
-          showName: detail.title,
-          posterPath: season.posterPath ?? detail.posterPath,
-          mediaService: widget.mediaService,
+        builder: (BuildContext context) => OmnioSourcesScreen(
+          title: detail.title,
+          logoPath: detail.logoPath,
+          posterPath: detail.posterPath ?? detail.backdropPath,
+          mediaType: 'tv',
+          imdbId: detail.imdbId!,
+          tmdbId: detail.id > 0 ? detail.id : null,
+          seasonNumber: episode.seasonNumber,
+          episodeNumber: episode.episodeNumber,
+          episodeName: episode.name,
         ),
       ),
     );
@@ -604,6 +695,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                 child: _HeroPanel(
                   detail: detail,
                   height: heroHeight,
+                  scrollController: _scrollController,
+                  isShow: !isMovie,
                   isFavorited: _isFavorited,
                   onPlay: _showPlaybackTools,
                   onMore: _openMoreSheet,
@@ -629,30 +722,19 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                             (SeasonSummary season) => season.seasonNumber > 0,
                           )) ...<Widget>[
                         const SizedBox(height: 30),
-                        const _SectionTitle(
-                            title: 'Seasons', showChevron: true),
-                        const SizedBox(height: 14),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          clipBehavior: Clip.none,
-                          child: Row(
-                            children: detail.seasons
-                                .where(
-                                  (SeasonSummary season) =>
-                                      season.seasonNumber > 0,
-                                )
-                                .map(
-                                  (SeasonSummary season) => Padding(
-                                    padding: const EdgeInsets.only(right: 14),
-                                    child: _SeasonCard(
-                                      season: season,
-                                      fallbackPosterPath: detail.posterPath,
-                                      onTap: () => _openSeason(season),
-                                    ),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
+                        _ShowEpisodesSection(
+                          seasons: detail.seasons
+                              .where(
+                                (SeasonSummary season) =>
+                                    season.seasonNumber > 0,
+                              )
+                              .toList(growable: false),
+                          selectedSeasonNumber: _selectedSeasonNumber,
+                          episodes: _episodes,
+                          loading: _loadingEpisodes,
+                          fallbackPosterPath: detail.posterPath,
+                          onSeasonChanged: _loadEpisodes,
+                          onEpisodeTap: _openEpisode,
                         ),
                       ],
                       if (detail.trailers.isNotEmpty) ...<Widget>[
@@ -847,6 +929,8 @@ class _HeroPanel extends StatelessWidget {
   const _HeroPanel({
     required this.detail,
     required this.height,
+    required this.scrollController,
+    required this.isShow,
     required this.isFavorited,
     required this.onPlay,
     required this.onMore,
@@ -854,6 +938,8 @@ class _HeroPanel extends StatelessWidget {
 
   final MediaDetail detail;
   final double height;
+  final ScrollController scrollController;
+  final bool isShow;
   final bool isFavorited;
   final VoidCallback onPlay;
   final VoidCallback onMore;
@@ -866,104 +952,145 @@ class _HeroPanel extends StatelessWidget {
 
     return SizedBox(
       height: height,
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          if (imagePath == null)
-            const ColoredBox(color: AppColors.cardBackground)
-          else
-            OptimizedNetworkImage(
-              url: getImageUrl(imagePath, 'w1280'),
-              fit: BoxFit.cover,
-              cacheWidth: 1080,
-              errorBuilder: (
-                BuildContext context,
-                Object error,
-                StackTrace? stackTrace,
-              ) {
-                return const ColoredBox(color: AppColors.cardBackground);
-              },
-            ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  Colors.black.withOpacity(0.10),
-                  Colors.black.withOpacity(0.18),
-                  Colors.black.withOpacity(0.64),
-                  const Color(0xFF050505),
-                ],
-                stops: const <double>[0, 0.36, 0.76, 1],
-              ),
-            ),
-          ),
-          Positioned(
-            left: 18,
-            right: 18,
-            bottom: 28,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                TitleLogo(
-                  title: detail.title,
-                  logoPath: detail.logoPath,
-                  maxLines: 2,
-                  logoHeight: 96,
-                  maxLogoWidth: 330,
-                  textStyle: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 34,
-                    height: 0.95,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1.3,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                if (genreLine.isNotEmpty)
-                  Text(
-                    genreLine,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                const SizedBox(height: 18),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.text,
-                          foregroundColor: AppColors.background,
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                        onPressed: onPlay,
-                        icon: const Icon(Icons.play_arrow_rounded, size: 24),
-                        label: const Text(
-                          'Play',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
-                          ),
-                        ),
+      child: AnimatedBuilder(
+        animation: scrollController,
+        builder: (BuildContext context, Widget? child) {
+          final double offset = scrollController.hasClients
+              ? scrollController.offset.clamp(0, height * 0.45).toDouble()
+              : 0;
+          final double scale = 1 + (offset / height) * 0.055;
+
+          return Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              if (imagePath == null)
+                const ColoredBox(color: AppColors.cardBackground)
+              else
+                ClipRect(
+                  child: Transform.translate(
+                    offset: Offset(0, offset * 0.24),
+                    child: Transform.scale(
+                      scale: scale,
+                      child: OptimizedNetworkImage(
+                        url: getImageUrl(imagePath, 'w1280'),
+                        fit: BoxFit.cover,
+                        cacheWidth: 1200,
+                        errorBuilder: (
+                          BuildContext context,
+                          Object error,
+                          StackTrace? stackTrace,
+                        ) {
+                          return const ColoredBox(
+                              color: AppColors.cardBackground);
+                        },
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    _RoundMoreButton(onTap: onMore),
+                  ),
+                ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Colors.black.withOpacity(0.10),
+                      Colors.black.withOpacity(0.18),
+                      Colors.black.withOpacity(0.64),
+                      const Color(0xFF050505),
+                    ],
+                    stops: const <double>[0, 0.36, 0.76, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 18,
+                right: 18,
+                bottom: 28,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: <Widget>[
+                    TitleLogo(
+                      title: detail.title,
+                      logoPath: detail.logoPath,
+                      maxLines: 2,
+                      logoHeight: 96,
+                      maxLogoWidth: 330,
+                      textStyle: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 34,
+                        height: 0.95,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (genreLine.isNotEmpty)
+                      Text(
+                        genreLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.text,
+                              foregroundColor: AppColors.background,
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            onPressed: onPlay,
+                            icon:
+                                const Icon(Icons.play_arrow_rounded, size: 24),
+                            label: isShow
+                                ? const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: <Widget>[
+                                      Text(
+                                        'Play',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                      SizedBox(width: 5),
+                                      Text(
+                                        'First Episode',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : const Text(
+                                    'Play',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _RoundMoreButton(onTap: onMore),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1123,6 +1250,265 @@ class _SmallBadge extends StatelessWidget {
           color: AppColors.text,
           fontSize: 12,
           fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _ShowEpisodesSection extends StatelessWidget {
+  const _ShowEpisodesSection({
+    required this.seasons,
+    required this.selectedSeasonNumber,
+    required this.episodes,
+    required this.loading,
+    required this.fallbackPosterPath,
+    required this.onSeasonChanged,
+    required this.onEpisodeTap,
+  });
+
+  final List<SeasonSummary> seasons;
+  final int? selectedSeasonNumber;
+  final List<EpisodeItem> episodes;
+  final bool loading;
+  final String? fallbackPosterPath;
+  final ValueChanged<int> onSeasonChanged;
+  final ValueChanged<EpisodeItem> onEpisodeTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final int selected = selectedSeasonNumber ?? seasons.first.seasonNumber;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            const _SectionTitle(title: 'Seasons'),
+            const Spacer(),
+            PopupMenuButton<int>(
+              initialValue: selected,
+              onSelected: onSeasonChanged,
+              color: AppColors.cardBackground,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              itemBuilder: (BuildContext context) => seasons
+                  .map(
+                    (SeasonSummary season) => PopupMenuItem<int>(
+                      value: season.seasonNumber,
+                      child: Text(
+                        season.name,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      'Season ${selected.toString()}',
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.text,
+                      size: 18,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (loading)
+          const SizedBox(
+            height: 166,
+            child: Center(
+              child: CircularProgressIndicator(color: AppColors.text),
+            ),
+          )
+        else if (episodes.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Text(
+              'Episode artwork is not available for this season yet.',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 14,
+                height: 1.35,
+              ),
+            ),
+          )
+        else
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: episodes
+                  .map(
+                    (EpisodeItem episode) => Padding(
+                      padding: const EdgeInsets.only(right: 14),
+                      child: _EpisodeCard(
+                        episode: episode,
+                        fallbackPosterPath: fallbackPosterPath,
+                        onTap: () => onEpisodeTap(episode),
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EpisodeCard extends StatelessWidget {
+  const _EpisodeCard({
+    required this.episode,
+    required this.fallbackPosterPath,
+    required this.onTap,
+  });
+
+  final EpisodeItem episode;
+  final String? fallbackPosterPath;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? imagePath = episode.stillPath ?? fallbackPosterPath;
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 214,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                width: 214,
+                height: 124,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    if (imagePath == null)
+                      const ColoredBox(color: AppColors.cardBackground)
+                    else
+                      OptimizedNetworkImage(
+                        url: getImageUrl(imagePath, 'w780'),
+                        fit: BoxFit.cover,
+                        cacheWidth: 640,
+                        errorBuilder: (
+                          BuildContext context,
+                          Object error,
+                          StackTrace? stackTrace,
+                        ) {
+                          return const ColoredBox(
+                            color: AppColors.cardBackground,
+                          );
+                        },
+                      ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: <Color>[
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.76),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 10,
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              'E${episode.episodeNumber}',
+                              style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          if (episode.runtime > 0)
+                            Text(
+                              '${episode.runtime}m',
+                              style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const Positioned(
+                      right: 10,
+                      top: 10,
+                      child: Icon(
+                        Icons.play_circle_fill_rounded,
+                        color: AppColors.text,
+                        size: 28,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 9),
+            Text(
+              episode.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.text,
+                fontSize: 14,
+                height: 1.2,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              episode.overview.isEmpty ? 'Play episode' : episode.overview,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 12,
+                height: 1.25,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1483,80 +1869,6 @@ class _SheetAction extends StatelessWidget {
         style: const TextStyle(
           color: AppColors.text,
           fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _SeasonCard extends StatelessWidget {
-  const _SeasonCard({
-    required this.season,
-    required this.fallbackPosterPath,
-    required this.onTap,
-  });
-
-  final SeasonSummary season;
-  final String? fallbackPosterPath;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final String? imagePath = season.posterPath ?? fallbackPosterPath;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 178,
-        height: 106,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: AppColors.cardBackground,
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            if (imagePath == null)
-              const ColoredBox(color: AppColors.cardBackground)
-            else
-              OptimizedNetworkImage(
-                url: getImageUrl(imagePath, 'w342'),
-                fit: BoxFit.cover,
-                cacheWidth: 390,
-                errorBuilder: (
-                  BuildContext context,
-                  Object error,
-                  StackTrace? stackTrace,
-                ) {
-                  return const ColoredBox(color: AppColors.cardBackground);
-                },
-              ),
-            Container(
-              alignment: Alignment.bottomLeft,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.76),
-                  ],
-                ),
-              ),
-              child: Text(
-                season.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -158,7 +158,7 @@ class MediaTrailer {
 
   String? get thumbnailUrl {
     if (site.toLowerCase() == 'youtube' && key.isNotEmpty) {
-      return 'https://img.youtube.com/vi/$key/hqdefault.jpg';
+      return 'https://i.ytimg.com/vi/$key/maxresdefault.jpg';
     }
     return null;
   }
@@ -199,6 +199,7 @@ class EpisodeItem {
     required this.airDate,
     required this.voteAverage,
     required this.runtime,
+    this.stillPath,
   });
 
   final int id;
@@ -209,6 +210,7 @@ class EpisodeItem {
   final String airDate;
   final double voteAverage;
   final int runtime;
+  final String? stillPath;
 
   factory EpisodeItem.fromJson(Map<String, dynamic> json) {
     return EpisodeItem(
@@ -220,6 +222,7 @@ class EpisodeItem {
       airDate: (json['air_date'] as String?) ?? '',
       voteAverage: (json['vote_average'] as num?)?.toDouble() ?? 0,
       runtime: (json['runtime'] as num?)?.toInt() ?? 0,
+      stillPath: json['still_path'] as String?,
     );
   }
 }

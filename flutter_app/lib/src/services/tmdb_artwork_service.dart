@@ -10,6 +10,7 @@ class TmdbArtworkService {
       : _httpService = httpService ?? TmdbHttpService();
 
   final TmdbHttpService _httpService;
+  final Map<String, _Artwork?> _artworkCache = <String, _Artwork?>{};
 
   Future<List<AddonCatalogRow>> enrichCatalogRows(
     List<AddonCatalogRow> rows, {
@@ -83,6 +84,10 @@ class TmdbArtworkService {
     String imdbId,
     String? personalCredential,
   ) async {
+    if (_artworkCache.containsKey(imdbId)) {
+      return _artworkCache[imdbId];
+    }
+
     try {
       final Map<String, dynamic> payload = await _httpService.getJson(
         '/find/${Uri.encodeComponent(imdbId)}',
@@ -100,17 +105,21 @@ class TmdbArtworkService {
         return item?['poster_path'] != null || item?['backdrop_path'] != null;
       }, orElse: () => null);
       if (match == null) {
+        _artworkCache[imdbId] = null;
         return null;
       }
 
       final String? posterPath = match['poster_path'] as String?;
       final String? backdropPath = match['backdrop_path'] as String?;
-      return _Artwork(
+      final _Artwork artwork = _Artwork(
         posterUrl: posterPath == null ? null : getImageUrl(posterPath, 'w780'),
         backdropUrl:
             backdropPath == null ? null : getImageUrl(backdropPath, 'w1280'),
       );
+      _artworkCache[imdbId] = artwork;
+      return artwork;
     } catch (_) {
+      _artworkCache[imdbId] = null;
       return null;
     }
   }
