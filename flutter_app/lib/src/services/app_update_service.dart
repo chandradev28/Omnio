@@ -30,7 +30,7 @@ class AppUpdateService {
         _channel = channel ?? const MethodChannel('streamed/app_updater');
 
   static const String _latestReleaseUrl =
-      'https://api.github.com/repos/chandradev28/streamed-flutter/releases/latest';
+      'https://api.github.com/repos/chandradev28/Omnio/releases/latest';
   static const String _userAgent = 'Omnio-App';
   static const String _currentVersion = String.fromEnvironment(
     'APP_VERSION',
