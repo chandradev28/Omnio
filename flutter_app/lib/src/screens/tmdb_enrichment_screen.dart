@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/torbox_models.dart';
 import '../services/app_settings_repository.dart';
+import '../services/tmdb_http_service.dart';
 import '../theme/app_colors.dart';
 
 class TmdbEnrichmentScreen extends StatefulWidget {
@@ -20,6 +21,9 @@ class _TmdbEnrichmentScreenState extends State<TmdbEnrichmentScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _languageController = TextEditingController();
   AppSettings _settings = const AppSettings();
+  bool _testingApiKey = false;
+  String? _apiKeyStatus;
+  bool _apiKeyStatusSuccess = false;
 
   @override
   void initState() {
@@ -56,8 +60,84 @@ class _TmdbEnrichmentScreenState extends State<TmdbEnrichmentScreen> {
     });
   }
 
-  Future<void> _saveApiKey() async {
-    await _save(_settings.copyWith(tmdbApiKey: _apiKeyController.text.trim()));
+  Future<void> _testAndSaveApiKey() async {
+    if (_testingApiKey) {
+      return;
+    }
+
+    final String rawCredential = _apiKeyController.text;
+    if (TmdbHttpService.normalizeCredential(rawCredential).isEmpty) {
+      setState(() {
+        _apiKeyStatus =
+            'Enter a TMDB v3 API key or v4 Read Access Token first.';
+        _apiKeyStatusSuccess = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _testingApiKey = true;
+      _apiKeyStatus = 'Testing TMDB connection...';
+      _apiKeyStatusSuccess = false;
+    });
+
+    try {
+      final String credential = await TmdbHttpService(
+        settingsRepository: widget.settingsRepository,
+      ).validateCredential(rawCredential);
+      await _save(_settings.copyWith(tmdbApiKey: credential));
+      if (!mounted) {
+        return;
+      }
+      _apiKeyController.text = credential;
+      setState(() {
+        _apiKeyStatus =
+            'TMDB verified. Your credential was saved and is ready for search.';
+        _apiKeyStatusSuccess = true;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _apiKeyStatus = _credentialErrorMessage(error);
+        _apiKeyStatusSuccess = false;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _testingApiKey = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _clearApiKey() async {
+    _apiKeyController.clear();
+    await _save(_settings.copyWith(clearTmdbApiKey: true));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _apiKeyStatus =
+          'Personal credential removed. The built-in key will be used.';
+      _apiKeyStatusSuccess = true;
+    });
+  }
+
+  String _credentialErrorMessage(Object error) {
+    if (error is TmdbRequestException) {
+      if (error.statusCode == 401) {
+        return 'TMDB rejected this credential. Check that you pasted the full '
+            'v3 API key or v4 Read Access Token.';
+      }
+      if (error.statusCode == 403 || error.statusCode >= 500) {
+        return 'TMDB or your network blocked the request. Connect VPN/WARP and '
+            'try Test & Save again.';
+      }
+      return error.message;
+    }
+    return 'TMDB could not be reached. Connect VPN/WARP and try again.';
   }
 
   Future<void> _saveLanguage() async {
@@ -85,7 +165,8 @@ class _TmdbEnrichmentScreenState extends State<TmdbEnrichmentScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'The app uses the built-in Omnio API key by default. Add your own TMDB v3 API key below if you want to use personal quota.',
+              'The app uses the built-in key by default. Add a TMDB v3 API key '
+              'or v4 Read Access Token below, then test it before saving.',
               style: TextStyle(color: AppColors.textMuted, height: 1.4),
             ),
           ],
@@ -95,17 +176,46 @@ class _TmdbEnrichmentScreenState extends State<TmdbEnrichmentScreen> {
           children: <Widget>[
             const _FieldTitle(
               title: 'Personal API key',
-              subtitle: 'Enter your TMDB v3 API key.',
+              subtitle: 'Enter a v3 API key or v4 Read Access Token.',
             ),
             _SecretField(
               controller: _apiKeyController,
-              hintText: 'API Key',
+              hintText: 'TMDB key or read token',
             ),
             const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _saveApiKey,
-              child: const Text('Save'),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: <Widget>[
+                FilledButton.icon(
+                  onPressed: _testingApiKey ? null : _testAndSaveApiKey,
+                  icon: _testingApiKey
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.verified_rounded, size: 18),
+                  label: Text(_testingApiKey ? 'Testing...' : 'Test & Save'),
+                ),
+                OutlinedButton(
+                  onPressed: _testingApiKey ||
+                          TmdbHttpService.normalizeCredential(
+                            _apiKeyController.text,
+                          ).isEmpty
+                      ? null
+                      : _clearApiKey,
+                  child: const Text('Clear'),
+                ),
+              ],
             ),
+            if (_apiKeyStatus != null) ...<Widget>[
+              const SizedBox(height: 12),
+              _CredentialStatus(
+                message: _apiKeyStatus!,
+                success: _apiKeyStatusSuccess,
+              ),
+            ],
           ],
         ),
         const _SectionLabel('LOCALIZATION'),
@@ -381,6 +491,51 @@ class _FieldTitle extends StatelessWidget {
           Text(
             subtitle,
             style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CredentialStatus extends StatelessWidget {
+  const _CredentialStatus({
+    required this.message,
+    required this.success,
+  });
+
+  final String message;
+  final bool success;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = success ? const Color(0xFF63D391) : AppColors.primary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(
+            success ? Icons.check_circle_rounded : Icons.info_rounded,
+            color: color,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: AppColors.text,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
           ),
         ],
       ),

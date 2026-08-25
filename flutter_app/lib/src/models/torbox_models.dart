@@ -816,6 +816,21 @@ class AddonCatalogItem {
   final String? description;
   final String? releaseInfo;
 
+  AddonCatalogItem copyWith({
+    String? poster,
+    String? background,
+  }) {
+    return AddonCatalogItem(
+      id: id,
+      type: type,
+      name: name,
+      poster: poster ?? this.poster,
+      background: background ?? this.background,
+      description: description,
+      releaseInfo: releaseInfo,
+    );
+  }
+
   String get mediaType => type == 'series' ? 'tv' : type;
 
   factory AddonCatalogItem.fromJson(Map<String, dynamic> json) {
@@ -922,17 +937,40 @@ class AddonCatalog {
     required this.type,
     required this.id,
     required this.name,
+    this.extraNames = const <String>[],
   });
 
   final String type;
   final String id;
   final String name;
+  final List<String> extraNames;
+
+  bool get supportsSearch => extraNames.contains('search');
 
   factory AddonCatalog.fromJson(Map<String, dynamic> json) {
+    final Set<String> extraNames = <String>{};
+    final dynamic rawExtra = json['extra'];
+    if (rawExtra is List<dynamic>) {
+      for (final dynamic value in rawExtra) {
+        if (value is String) {
+          extraNames.add(value);
+        } else if (value is Map<String, dynamic> && value['name'] is String) {
+          extraNames.add(value['name'] as String);
+        }
+      }
+    }
+    final dynamic rawSupported = json['extraSupported'];
+    if (rawSupported is List<dynamic>) {
+      extraNames.addAll(
+        rawSupported.whereType<String>(),
+      );
+    }
+
     return AddonCatalog(
       type: (json['type'] as String?) ?? '',
       id: (json['id'] as String?) ?? '',
       name: (json['name'] as String?) ?? '',
+      extraNames: extraNames.toList(growable: false),
     );
   }
 
@@ -941,6 +979,10 @@ class AddonCatalog {
       'type': type,
       'id': id,
       'name': name,
+      'extra': extraNames
+          .map((String name) => <String, dynamic>{'name': name})
+          .toList(growable: false),
+      'extraSupported': extraNames,
     };
   }
 }

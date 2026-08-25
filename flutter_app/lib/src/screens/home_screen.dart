@@ -7,6 +7,7 @@ import '../models/tmdb_media_models.dart';
 import '../models/watch_history_item.dart';
 import '../services/app_settings_repository.dart';
 import '../services/stremio_addons_service.dart';
+import '../services/tmdb_artwork_service.dart';
 import '../services/tmdb_image.dart';
 import '../services/tmdb_media_service.dart';
 import '../services/watch_history_repository.dart';
@@ -26,17 +27,20 @@ class HomeScreen extends StatefulWidget {
     ContinueWatchingRepository? watchHistoryRepository,
     AppSettingsRepository? settingsRepository,
     StremioAddonsService? addonsService,
+    TmdbArtworkService? artworkService,
     this.onSettingsChanged,
   })  : mediaService = mediaService ?? TmdbMediaService(),
         watchHistoryRepository =
             watchHistoryRepository ?? WatchHistoryRepository(),
         settingsRepository = settingsRepository ?? AppSettingsRepository(),
-        addonsService = addonsService ?? StremioAddonsService();
+        addonsService = addonsService ?? StremioAddonsService(),
+        artworkService = artworkService ?? TmdbArtworkService();
 
   final MediaCatalogService mediaService;
   final ContinueWatchingRepository watchHistoryRepository;
   final AppSettingsRepository settingsRepository;
   final StremioAddonsService addonsService;
+  final TmdbArtworkService artworkService;
   final Future<void> Function()? onSettingsChanged;
 
   @override
@@ -51,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _heroIndex = 0;
   List<AddonCatalogRow> _catalogRows = const <AddonCatalogRow>[];
   List<AddonManifest> _installedAddons = const <AddonManifest>[];
+  int _loadVersion = 0;
 
   @override
   void initState() {
@@ -70,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadHome() async {
+    final int loadVersion = ++_loadVersion;
     setState(() {
       _loading = true;
     });
@@ -86,11 +92,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadCatalogRowsOrKeep(),
       ]);
 
-      if (!mounted) {
+      if (!mounted || loadVersion != _loadVersion) {
         return;
       }
 
       final AppSettings settings = results[0] as AppSettings;
+      final List<AddonCatalogRow> catalogRows =
+          results[3] as List<AddonCatalogRow>;
       setState(() {
         _settings = settings;
         _continueWatching = _sortContinueWatching(
@@ -98,9 +106,24 @@ class _HomeScreenState extends State<HomeScreen> {
           settings,
         );
         _installedAddons = results[2] as List<AddonManifest>;
-        _catalogRows = results[3] as List<AddonCatalogRow>;
+        _catalogRows = catalogRows;
         _loading = false;
       });
+
+      final List<AddonCatalogRow> enrichedRows =
+          await widget.artworkService.enrichCatalogRows(
+        catalogRows,
+        personalCredential: settings.tmdbApiKey,
+        enabled: settings.tmdbEnrichmentEnabled && settings.tmdbArtworkEnabled,
+      );
+      if (!mounted || loadVersion != _loadVersion) {
+        return;
+      }
+      if (enrichedRows != catalogRows) {
+        setState(() {
+          _catalogRows = enrichedRows;
+        });
+      }
     } catch (_) {
       if (!mounted) {
         return;

@@ -19,6 +19,8 @@ class SearchResult {
     this.originalName,
     this.firstAirDate,
     this.originCountry = const <String>[],
+    this.externalId,
+    this.sourceName,
   });
 
   final int id;
@@ -40,10 +42,12 @@ class SearchResult {
   final String? originalName;
   final String? firstAirDate;
   final List<String> originCountry;
+  final String? externalId;
+  final String? sourceName;
 
   factory SearchResult.fromJson(Map<String, dynamic> json) {
     return SearchResult(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       mediaType: (json['media_type'] as String?) ?? 'movie',
       posterPath: json['poster_path'] as String?,
       backdropPath: json['backdrop_path'] as String?,
@@ -67,6 +71,8 @@ class SearchResult {
           ((json['origin_country'] as List<dynamic>?) ?? const <dynamic>[])
               .map((dynamic value) => value as String)
               .toList(growable: false),
+      externalId: json['external_id'] as String?,
+      sourceName: json['source_name'] as String?,
     );
   }
 

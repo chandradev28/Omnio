@@ -6,7 +6,9 @@ import '../constants/layout.dart';
 import '../models/search_result.dart';
 import '../models/torbox_models.dart';
 import '../services/app_settings_repository.dart';
+import '../services/catalog_search_service.dart';
 import '../services/tmdb_image.dart';
+import '../services/tmdb_http_service.dart';
 import '../services/tmdb_search_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/layout_options.dart';
@@ -37,6 +39,7 @@ class _SearchScreenState extends State<SearchScreen> {
   List<SearchResult> _results = const <SearchResult>[];
   bool _loading = false;
   bool _hasSearched = false;
+  String? _searchError;
   SearchFilter _activeFilter = SearchFilter.all;
   int _searchVersion = 0;
   AppSettings _settings = const AppSettings();
@@ -45,7 +48,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _searchService = widget.searchService ??
-        TmdbSearchService(
+        CombinedSearchService(
           settingsRepository: widget.settingsRepository,
         );
     _loadSettings();
@@ -82,6 +85,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _results = const <SearchResult>[];
         _loading = false;
         _hasSearched = false;
+        _searchError = null;
       });
       return;
     }
@@ -101,6 +105,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _loading = true;
       _hasSearched = true;
+      _searchError = null;
     });
 
     try {
@@ -114,13 +119,14 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _results = results;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted || requestVersion != _searchVersion) {
         return;
       }
 
       setState(() {
         _results = const <SearchResult>[];
+        _searchError = _friendlySearchError(error);
       });
     } finally {
       if (mounted && requestVersion == _searchVersion) {
@@ -138,8 +144,23 @@ class _SearchScreenState extends State<SearchScreen> {
       _results = const <SearchResult>[];
       _loading = false;
       _hasSearched = false;
+      _searchError = null;
     });
     _focusNode.requestFocus();
+  }
+
+  String _friendlySearchError(Object error) {
+    if (error is SearchRequestException) {
+      return error.message;
+    }
+    if (error is TmdbRequestException && error.statusCode == 401) {
+      return 'TMDB rejected this credential. Open Settings > Integrations > '
+          'TMDB Enrichment and use Test & Save.';
+    }
+    if (error is TmdbRequestException) {
+      return 'TMDB could not be reached. Connect VPN/WARP or try again.';
+    }
+    return 'Search could not connect. Check your network and try again.';
   }
 
   void _openDetail(SearchResult item) {
@@ -149,12 +170,14 @@ class _SearchScreenState extends State<SearchScreen> {
         builder: (BuildContext context) => MovieDetailScreen(
           id: item.id,
           mediaType: item.mediaType,
+          externalId: item.externalId,
           fallbackTitle: item.displayTitle,
           fallbackPosterPath: item.posterPath,
           fallbackBackdropPath: item.backdropPath,
           fallbackOverview: item.overview,
           fallbackReleaseInfo:
               item.mediaType == 'tv' ? item.firstAirDate : item.releaseDate,
+          fallbackSourceName: item.sourceName,
         ),
       ),
     );
@@ -291,6 +314,8 @@ class _SearchScreenState extends State<SearchScreen> {
                           const _LoadingState()
                         else if (!_hasSearched)
                           const _IdleSearchState()
+                        else if (_searchError != null)
+                          _SearchErrorState(message: _searchError!)
                         else if (filteredResults.isEmpty)
                           const _NoResultsState()
                         else
@@ -555,6 +580,45 @@ class _NoResultsState extends StatelessWidget {
               fontSize: 14,
               height: 1.5,
               color: Color(0xFF666666),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchErrorState extends StatelessWidget {
+  const _SearchErrorState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 64),
+      child: Column(
+        children: <Widget>[
+          const _RoundIcon(
+              icon: Icons.cloud_off_rounded, color: AppColors.primary),
+          const SizedBox(height: 20),
+          const Text(
+            'Search unavailable',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AppColors.text,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color: AppColors.textMuted,
             ),
           ),
         ],

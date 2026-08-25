@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../models/search_result.dart';
 import '../models/torbox_models.dart';
 import 'local_json_store.dart';
 
@@ -128,9 +129,16 @@ class StremioAddonsService {
 
   Future<List<AddonCatalogItem>> fetchCatalog(
     AddonManifest addon,
-    AddonCatalog catalog,
-  ) async {
-    final Uri catalogUri = _buildCatalogUri(addon, catalog);
+    AddonCatalog catalog, {
+    String? search,
+    int? skip,
+  }) async {
+    final Uri catalogUri = _buildCatalogUri(
+      addon,
+      catalog,
+      search: search,
+      skip: skip,
+    );
     final Map<String, dynamic> payload = await _fetchJson(catalogUri);
     final List<dynamic> metas =
         payload['metas'] as List<dynamic>? ?? const <dynamic>[];
@@ -141,6 +149,82 @@ class StremioAddonsService {
         )
         .take(20)
         .toList(growable: false);
+  }
+
+  /// Searches catalog resources that advertise the standard Stremio `search`
+  /// extra. The `top` fallback keeps older persisted manifests working even
+  /// when their original `extra` metadata was not saved by an earlier build.
+  Future<List<SearchResult>> searchCatalogs(String query) async {
+    final String trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      return const <SearchResult>[];
+    }
+
+    final List<AddonManifest> addons = await getEnabledAddons();
+    final List<SearchResult> results = <SearchResult>[];
+    final Set<String> seen = <String>{};
+    Object? lastError;
+    bool attempted = false;
+
+    for (final AddonManifest addon in addons) {
+      for (final AddonCatalog catalog in addon.catalogs) {
+        if (catalog.type != 'movie' && catalog.type != 'series') {
+          continue;
+        }
+        if (!catalog.supportsSearch && catalog.id != 'top') {
+          continue;
+        }
+
+        attempted = true;
+        try {
+          final List<AddonCatalogItem> items = await fetchCatalog(
+            addon,
+            catalog,
+            search: trimmed,
+          );
+          for (final AddonCatalogItem item in items) {
+            final String externalId = item.id.trim();
+            final String title = item.name.trim();
+            if (externalId.isEmpty || title.isEmpty) {
+              continue;
+            }
+
+            final String mediaType = item.mediaType == 'tv' ? 'tv' : 'movie';
+            final String dedupeKey = '$mediaType:$externalId';
+            if (!seen.add(dedupeKey)) {
+              continue;
+            }
+
+            results.add(
+              SearchResult(
+                id: 0,
+                mediaType: mediaType,
+                posterPath: resolveAddonUrl(addon, item.poster),
+                backdropPath: resolveAddonUrl(addon, item.background),
+                overview: item.description ?? '',
+                voteAverage: 0,
+                voteCount: 0,
+                popularity: 0,
+                genreIds: const <int>[],
+                originalLanguage: 'en',
+                adult: false,
+                title: title,
+                releaseDate: item.releaseInfo,
+                externalId: externalId,
+                sourceName: addon.name,
+              ),
+            );
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+    }
+
+    if (results.isEmpty && attempted && lastError != null) {
+      throw lastError;
+    }
+    return results.take(40).toList(growable: false);
   }
 
   String resolveAddonUrl(AddonManifest addon, String? raw) {
@@ -436,12 +520,28 @@ class StremioAddonsService {
     );
   }
 
-  Uri _buildCatalogUri(AddonManifest addon, AddonCatalog catalog) {
+  Uri _buildCatalogUri(
+    AddonManifest addon,
+    AddonCatalog catalog, {
+    String? search,
+    int? skip,
+  }) {
     final Uri originalUri = Uri.parse(addon.originalUrl);
     final Uri baseUri = Uri.parse(addon.url);
-    return baseUri.replace(
-      path: '${baseUri.path}/catalog/${catalog.type}/${catalog.id}.json'
+    final StringBuffer path = StringBuffer(
+      '${baseUri.path}/catalog/${catalog.type}/${catalog.id}'
           .replaceAll('//', '/'),
+    );
+    final String trimmedSearch = (search ?? '').trim();
+    if (trimmedSearch.isNotEmpty) {
+      path.write('/search=${Uri.encodeComponent(trimmedSearch)}');
+    }
+    if (skip != null && skip > 0) {
+      path.write('/skip=$skip');
+    }
+    path.write('.json');
+    return baseUri.replace(
+      path: path.toString(),
       queryParameters: originalUri.queryParameters.isEmpty
           ? null
           : originalUri.queryParameters,

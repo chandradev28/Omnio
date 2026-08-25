@@ -16,10 +16,13 @@ abstract class MediaCatalogService {
 class TmdbMediaService implements MediaCatalogService {
   TmdbMediaService({
     AppSettingsRepository? settingsRepository,
-  }) : _settingsRepository = settingsRepository ?? AppSettingsRepository();
+  })  : _settingsRepository = settingsRepository ?? AppSettingsRepository(),
+        _httpService = TmdbHttpService(
+          settingsRepository: settingsRepository,
+        );
 
   final AppSettingsRepository _settingsRepository;
-  final TmdbHttpService _httpService = TmdbHttpService();
+  final TmdbHttpService _httpService;
 
   @override
   Future<List<MediaSummary>> getTrendingMovies() async {
