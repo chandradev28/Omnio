@@ -11,8 +11,8 @@ import 'theme/app_theme.dart';
 import 'theme/layout_options.dart';
 import 'widgets/app_update_dialog.dart';
 
-class StreamedApp extends StatefulWidget {
-  const StreamedApp({
+class OmnioApp extends StatefulWidget {
+  const OmnioApp({
     super.key,
     this.home,
   });
@@ -20,10 +20,10 @@ class StreamedApp extends StatefulWidget {
   final Widget? home;
 
   @override
-  State<StreamedApp> createState() => _StreamedAppState();
+  State<OmnioApp> createState() => _OmnioAppState();
 }
 
-class _StreamedAppState extends State<StreamedApp> {
+class _OmnioAppState extends State<OmnioApp> {
   final AppSettingsRepository _settingsRepository = AppSettingsRepository();
   final AppUpdateService _updateService = AppUpdateService();
   bool _updatePromptShown = false;
@@ -72,7 +72,7 @@ class _StreamedAppState extends State<StreamedApp> {
       valueListenable: AppSettingsRepository.settingsNotifier,
       builder: (BuildContext context, AppSettings settings, Widget? child) {
         return MaterialApp(
-          title: 'Streamed Flutter',
+          title: 'Omnio',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.dark(accent: LayoutOptions.accentFor(settings)),
           home: widget.home ?? const HomeShell(),

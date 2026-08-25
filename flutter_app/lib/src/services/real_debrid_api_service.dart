@@ -494,7 +494,7 @@ class RealDebridApiService {
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'StreamedFlutter/1.0 (Android; Flutter)',
+        'Omnio/1.0 (Android; Flutter)',
       );
       if (body != null) {
         request.headers.set(HttpHeaders.contentTypeHeader, contentType ?? '');

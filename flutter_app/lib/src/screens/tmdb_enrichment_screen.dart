@@ -85,7 +85,7 @@ class _TmdbEnrichmentScreenState extends State<TmdbEnrichmentScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'The app uses the built-in Streamed API key by default. Add your own TMDB v3 API key below if you want to use personal quota.',
+              'The app uses the built-in Omnio API key by default. Add your own TMDB v3 API key below if you want to use personal quota.',
               style: TextStyle(color: AppColors.textMuted, height: 1.4),
             ),
           ],

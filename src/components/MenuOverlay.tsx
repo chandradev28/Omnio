@@ -168,7 +168,7 @@ export const MenuOverlay = ({ visible, onClose, onNavigate }: MenuOverlayProps) 
 
             {/* Footer */}
             <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-                <Text style={styles.footerText}>Streamed v1.0.0</Text>
+                <Text style={styles.footerText}>Omnio v1.0.0</Text>
             </View>
         </Animated.View>
     );

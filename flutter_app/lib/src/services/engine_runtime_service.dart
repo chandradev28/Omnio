@@ -572,7 +572,7 @@ class EngineRuntimeService {
       );
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 StreamedFlutter/1.0',
+        'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Omnio/1.0',
       );
       if (spec.body != null) {
         request.headers.contentType = ContentType.json;

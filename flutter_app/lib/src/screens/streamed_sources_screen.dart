@@ -14,8 +14,8 @@ import '../widgets/optimized_network_image.dart';
 import '../widgets/title_logo.dart';
 import 'video_player_screen.dart';
 
-class StreamedSourcesScreen extends StatefulWidget {
-  StreamedSourcesScreen({
+class OmnioSourcesScreen extends StatefulWidget {
+  OmnioSourcesScreen({
     super.key,
     required this.title,
     this.logoPath,
@@ -56,10 +56,10 @@ class StreamedSourcesScreen extends StatefulWidget {
   final StreamBadgeService streamBadgeService;
 
   @override
-  State<StreamedSourcesScreen> createState() => _StreamedSourcesScreenState();
+  State<OmnioSourcesScreen> createState() => _OmnioSourcesScreenState();
 }
 
-class _StreamedSourcesScreenState extends State<StreamedSourcesScreen> {
+class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
   final ScrollController _scrollController = ScrollController();
 
   AppSettings _settings = const AppSettings();
@@ -167,7 +167,7 @@ class _StreamedSourcesScreenState extends State<StreamedSourcesScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: RepaintBoundary(
-        child: _StreamedSourceCard(
+        child: _OmnioSourceCard(
           source: source,
           badges: _badgesForCard(widget.streamBadgeService, _badges, source),
           onPlay: () => _playSource(source),
@@ -242,7 +242,7 @@ class _StreamedSourcesScreenState extends State<StreamedSourcesScreen> {
         (AddonManifest addon) => addon.enabled && addon.hasStreamResource,
       );
       if (!hasEnabledStreamAddon) {
-        _message = 'Install and enable a stream addon to search Streamed.';
+        _message = 'Install and enable a stream addon to search Omnio.';
       }
 
       if (hasEnabledStreamAddon) {
@@ -1094,8 +1094,8 @@ List<StreamBadge> _generatedStreamBadges(StreamSource source) {
   return badges;
 }
 
-class _StreamedSourceCard extends StatelessWidget {
-  const _StreamedSourceCard({
+class _OmnioSourceCard extends StatelessWidget {
+  const _OmnioSourceCard({
     required this.source,
     required this.badges,
     required this.onPlay,

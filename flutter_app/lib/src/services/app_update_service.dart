@@ -31,7 +31,7 @@ class AppUpdateService {
 
   static const String _latestReleaseUrl =
       'https://api.github.com/repos/chandradev28/streamed-flutter/releases/latest';
-  static const String _userAgent = 'Streamed-Flutter-App';
+  static const String _userAgent = 'Omnio-App';
   static const String _currentVersion = String.fromEnvironment(
     'APP_VERSION',
     defaultValue: '1.0.0',

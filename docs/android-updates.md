@@ -1,6 +1,6 @@
 # Android Updates
 
-Streamed uses public GitHub Releases for free, direct APK updates. The app checks
+Omnio uses public GitHub Releases for free, direct APK updates. The app checks
 the latest release, shows an update dialog, downloads the signed APK, and opens
 the Android installer. Android still requires the user to confirm the install.
 

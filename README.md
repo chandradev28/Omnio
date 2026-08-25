@@ -1,6 +1,6 @@
-# STREAMED
+# OMNIO
 
-Streamed is an Android streaming app focused on movies, TV shows, TorBox integration, torrent search, and addon support.
+Omnio is an Android streaming app focused on movies, TV shows, TorBox integration, torrent search, and addon support.
 
 ## Features
 

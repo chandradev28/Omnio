@@ -116,7 +116,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
 
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => StreamedSourcesScreen(
+        builder: (BuildContext context) => OmnioSourcesScreen(
           title: widget.showName,
           logoPath: show.logoPath,
           posterPath: widget.posterPath ?? show.posterPath,

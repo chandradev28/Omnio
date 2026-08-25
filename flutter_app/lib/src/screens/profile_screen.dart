@@ -309,7 +309,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Check for updates',
                     subtitle: _checkingForUpdate
                         ? 'Checking for a newer version...'
-                        : 'Look for the latest Streamed APK',
+                        : 'Look for the latest Omnio APK',
                     accent: _accent,
                     onTap: _checkingForUpdate ? null : _checkForUpdates,
                   ),

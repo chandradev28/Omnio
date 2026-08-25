@@ -98,7 +98,7 @@ class TmdbHttpService {
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'Streamed/1.0 (Android; TMDB metadata client)',
+        'Omnio/1.0 (Android; TMDB metadata client)',
       );
 
       final HttpClientResponse response =

@@ -263,7 +263,7 @@ class TorBoxApiService {
         request.headers.set(HttpHeaders.acceptHeader, 'application/json');
         request.headers.set(
           HttpHeaders.userAgentHeader,
-          'StreamedFlutter/1.0 (Android; Flutter)',
+          'Omnio/1.0 (Android; Flutter)',
         );
         final HttpClientResponse response =
             await request.close().timeout(const Duration(seconds: 30));
@@ -445,7 +445,7 @@ class TorBoxApiService {
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'StreamedFlutter/1.0 (Android; Flutter)',
+        'Omnio/1.0 (Android; Flutter)',
       );
 
       if (body != null) {
@@ -531,7 +531,7 @@ class TorBoxApiService {
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'StreamedFlutter/1.0 (Android; Flutter)',
+        'Omnio/1.0 (Android; Flutter)',
       );
       request.write(buffer.toString());
       final HttpClientResponse response =

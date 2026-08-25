@@ -12,7 +12,7 @@ void main() {
   testWidgets('shows migrated home shell by default',
       (WidgetTester tester) async {
     await tester.pumpWidget(
-      StreamedApp(
+      OmnioApp(
         home: HomeScreen(
           mediaService: const FakeMediaService(),
           settingsRepository: FakeAppSettingsRepository(),

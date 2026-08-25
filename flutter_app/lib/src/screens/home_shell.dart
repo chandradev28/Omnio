@@ -105,7 +105,7 @@ class _HomeShellState extends State<HomeShell> {
               final _ShellTab tab = tabs[index];
               final bool selected = index == _currentIndex;
               return Expanded(
-                child: _StreamedNavItem(
+                child: _OmnioNavItem(
                   label: tab.label,
                   icon: selected ? tab.activeIcon : tab.icon,
                   selected: selected,
@@ -126,8 +126,8 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-class _StreamedNavItem extends StatelessWidget {
-  const _StreamedNavItem({
+class _OmnioNavItem extends StatelessWidget {
+  const _OmnioNavItem({
     required this.label,
     required this.icon,
     required this.selected,

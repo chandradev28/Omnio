@@ -26,7 +26,7 @@ Future<void> showAppUpdateDialog({
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text('Streamed ${update.version} is ready to install.'),
+                Text('Omnio ${update.version} is ready to install.'),
                 if (update.releaseNotes != null) ...<Widget>[
                   const SizedBox(height: 12),
                   Text(

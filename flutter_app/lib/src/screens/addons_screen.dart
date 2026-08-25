@@ -336,7 +336,7 @@ class _EmptyAddonsState extends StatelessWidget {
           ),
           SizedBox(height: 8),
           Text(
-            'Install Comet, MediaFusion, or any Stremio stream addon to power Streamed sources.',
+            'Install Comet, MediaFusion, or any Stremio stream addon to power Omnio sources.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppColors.textMuted, height: 1.45),
           ),

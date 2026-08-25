@@ -335,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if ((imdbId ?? '').isNotEmpty) {
         await Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
-            builder: (BuildContext context) => StreamedSourcesScreen(
+            builder: (BuildContext context) => OmnioSourcesScreen(
               title: detail.title,
               logoPath: detail.logoPath,
               posterPath: item.posterPath ?? detail.posterPath,

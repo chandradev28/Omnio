@@ -77,7 +77,7 @@ class EngineCatalogService {
       request.headers.set(HttpHeaders.acceptHeader, 'text/plain');
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 StreamedFlutter/1.0',
+        'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Omnio/1.0',
       );
       final HttpClientResponse response = await request.close();
       final String raw = await response.transform(utf8.decoder).join();

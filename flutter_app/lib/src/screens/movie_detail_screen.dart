@@ -395,7 +395,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       if (detail.id <= 0 && (detail.imdbId ?? '').isNotEmpty) {
         Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
-            builder: (BuildContext context) => StreamedSourcesScreen(
+            builder: (BuildContext context) => OmnioSourcesScreen(
               title: detail.title,
               logoPath: detail.logoPath,
               posterPath: detail.posterPath ?? detail.backdropPath,
@@ -436,7 +436,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => StreamedSourcesScreen(
+        builder: (BuildContext context) => OmnioSourcesScreen(
           title: detail.title,
           logoPath: detail.logoPath,
           posterPath: detail.posterPath ?? detail.backdropPath,

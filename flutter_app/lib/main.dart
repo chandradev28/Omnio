@@ -27,7 +27,7 @@ void main() {
           FlutterErrorDetails(
             exception: error,
             stack: stackTrace,
-            library: 'streamed platform dispatcher',
+            library: 'omnio platform dispatcher',
           ),
         );
         return true;
@@ -38,7 +38,7 @@ void main() {
               color: Color(0xFF050505),
               child: Center(
                 child: Text(
-                  'Streamed could not finish loading.',
+                  'Omnio could not finish loading.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Color(0xFFFFFFFF),
@@ -50,14 +50,14 @@ void main() {
             ),
           );
 
-      runApp(const StreamedApp());
+      runApp(const OmnioApp());
     },
     (Object error, StackTrace stackTrace) {
       FlutterError.reportError(
         FlutterErrorDetails(
           exception: error,
           stack: stackTrace,
-          library: 'streamed startup',
+          library: 'omnio startup',
         ),
       );
     },

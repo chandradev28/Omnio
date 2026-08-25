@@ -1332,7 +1332,7 @@ export const TorboxersSection = ({ onNavigate, onGoToStreamed }: TorboxersSectio
                     onPress={onGoToStreamed}
                 >
                     <ArrowLeft color="#fff" size={20} />
-                    <Text style={styles.goToStreamedText}>Go to Streamed</Text>
+                    <Text style={styles.goToStreamedText}>Go to Omnio</Text>
                 </TouchableOpacity>
             )}
 
@@ -1461,7 +1461,7 @@ export const TorboxersSection = ({ onNavigate, onGoToStreamed }: TorboxersSectio
                         </View>
                         <Text style={styles.placeholderTitle}>Not Connected</Text>
                         <Text style={styles.placeholderSubtitle}>
-                            Add your TorBox API key in Streamed Profile settings
+                            Add your TorBox API key in Omnio Profile settings
                         </Text>
                     </View>
                 ) : (

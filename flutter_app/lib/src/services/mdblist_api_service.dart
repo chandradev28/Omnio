@@ -209,7 +209,7 @@ class MdbListApiService {
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'StreamedFlutter/1.0 (Android; Flutter)',
+        'Omnio/1.0 (Android; Flutter)',
       );
       final HttpClientResponse response =
           await request.close().timeout(const Duration(seconds: 15));
