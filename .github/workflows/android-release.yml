@@ -109,11 +109,19 @@ jobs:
           VERSION_NAME: ${{ steps.build.outputs.version_name }}
           TAG_NAME: ${{ steps.build.outputs.tag_name }}
         run: |
-          gh release create "$TAG_NAME" \
-            "flutter_app/omnio-$VERSION_NAME.apk" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Omnio $VERSION_NAME" \
-            --generate-notes
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists; replacing its APK asset."
+            gh release upload "$TAG_NAME" \
+              "flutter_app/omnio-$VERSION_NAME.apk" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG_NAME" \
+              "flutter_app/omnio-$VERSION_NAME.apk" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Omnio $VERSION_NAME" \
+              --generate-notes
+          fi
 
       - name: Publish update manifest
         working-directory: .
@@ -126,7 +134,9 @@ jobs:
           APK_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG_NAME/omnio-$VERSION_NAME.apk"
           printf '{\n  "version": "%s",\n  "versionCode": %s,\n  "apkUrl": "%s"\n}\n' \
             "$VERSION_NAME" "$VERSION_CODE" "$APK_URL" > update.json
-          gh release upload "$TAG_NAME" update.json --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG_NAME" update.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
