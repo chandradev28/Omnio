@@ -1,6 +1,9 @@
+import 'dart:math';
+
 import '../models/torbox_models.dart';
 import '../models/tmdb_media_models.dart';
 import 'app_settings_repository.dart';
+import 'tmdb_artwork_selector.dart';
 import 'tmdb_http_service.dart';
 
 abstract class MediaCatalogService {
@@ -16,12 +19,15 @@ abstract class MediaCatalogService {
 class TmdbMediaService implements MediaCatalogService {
   TmdbMediaService({
     AppSettingsRepository? settingsRepository,
+    Random? artworkRandom,
   })  : _settingsRepository = settingsRepository ?? AppSettingsRepository(),
+        _artworkRandom = artworkRandom ?? Random(),
         _httpService = TmdbHttpService(
           settingsRepository: settingsRepository,
         );
 
   final AppSettingsRepository _settingsRepository;
+  final Random _artworkRandom;
   final TmdbHttpService _httpService;
 
   @override
@@ -91,6 +97,23 @@ class TmdbMediaService implements MediaCatalogService {
       ...detail,
       'imdb_id': detail['imdb_id'] ?? externalIds['imdb_id'],
     };
+    if (enrich && settings.tmdbArtworkEnabled) {
+      final int variantSeed = _artworkRandom.nextInt(1 << 31);
+      merged['poster_path'] = selectTmdbArtworkPath(
+            detail['images'],
+            collection: 'posters',
+            targetAspectRatio: 2 / 3,
+            variantSeed: variantSeed,
+          ) ??
+          detail['poster_path'];
+      merged['backdrop_path'] = selectTmdbArtworkPath(
+            detail['images'],
+            collection: 'backdrops',
+            targetAspectRatio: 16 / 9,
+            variantSeed: variantSeed,
+          ) ??
+          detail['backdrop_path'];
+    }
     if (enrich && !settings.tmdbBasicInfoEnabled) {
       merged['overview'] = '';
       merged['genres'] = const <dynamic>[];

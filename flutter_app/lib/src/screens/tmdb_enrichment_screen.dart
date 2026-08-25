@@ -85,14 +85,29 @@ class _TmdbEnrichmentScreenState extends State<TmdbEnrichmentScreen> {
       final String credential = await TmdbHttpService(
         settingsRepository: widget.settingsRepository,
       ).validateCredential(rawCredential);
-      await _save(_settings.copyWith(tmdbApiKey: credential));
+      await _save(
+        _settings.copyWith(
+          tmdbApiKey: credential,
+          tmdbEnrichmentEnabled: true,
+          tmdbTrailersEnabled: true,
+          tmdbArtworkEnabled: true,
+          tmdbBasicInfoEnabled: true,
+          tmdbDetailsEnabled: true,
+          tmdbCreditsEnabled: true,
+          tmdbProductionsEnabled: true,
+          tmdbNetworksEnabled: true,
+          tmdbEpisodesEnabled: true,
+          tmdbSeasonPostersEnabled: true,
+          tmdbMoreLikeThisEnabled: true,
+        ),
+      );
       if (!mounted) {
         return;
       }
       _apiKeyController.text = credential;
       setState(() {
-        _apiKeyStatus =
-            'TMDB verified. Your credential was saved and is ready for search.';
+        _apiKeyStatus = 'TMDB verified. Artwork, episodes, trailers, cast, and '
+            'related titles are enabled.';
         _apiKeyStatusSuccess = true;
       });
     } catch (error) {

@@ -12,7 +12,7 @@ class OptimizedNetworkImage extends StatelessWidget {
     this.alignment = Alignment.center,
     this.cacheWidth,
     this.cacheHeight,
-    this.filterQuality = FilterQuality.medium,
+    this.filterQuality = FilterQuality.high,
     this.errorBuilder,
   });
 
@@ -73,6 +73,7 @@ class OptimizedNetworkImage extends StatelessWidget {
       cacheWidth: cacheWidth,
       cacheHeight: cacheHeight,
       filterQuality: filterQuality,
+      isAntiAlias: true,
       gaplessPlayback: true,
       errorBuilder: (
         BuildContext context,

@@ -732,7 +732,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           selectedSeasonNumber: _selectedSeasonNumber,
                           episodes: _episodes,
                           loading: _loadingEpisodes,
-                          fallbackPosterPath: detail.posterPath,
+                          fallbackPosterPath:
+                              detail.backdropPath ?? detail.posterPath,
                           onSeasonChanged: _loadEpisodes,
                           onEpisodeTap: _openEpisode,
                         ),
@@ -946,7 +947,11 @@ class _HeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? imagePath = detail.backdropPath ?? detail.posterPath;
+    final double frameAspect = MediaQuery.sizeOf(context).width / height;
+    final bool usePortraitArtwork = frameAspect < 1.05;
+    final String? imagePath = usePortraitArtwork
+        ? (detail.posterPath ?? detail.backdropPath)
+        : (detail.backdropPath ?? detail.posterPath);
     final String genreLine =
         detail.genres.take(2).map((GenreItem item) => item.name).join(' - ');
 
@@ -972,9 +977,15 @@ class _HeroPanel extends StatelessWidget {
                     child: Transform.scale(
                       scale: scale,
                       child: OptimizedNetworkImage(
-                        url: getImageUrl(imagePath, 'w1280'),
+                        url: getImageUrl(imagePath, 'original'),
+                        width: double.infinity,
+                        height: double.infinity,
                         fit: BoxFit.cover,
-                        cacheWidth: 1200,
+                        alignment: usePortraitArtwork
+                            ? Alignment.topCenter
+                            : Alignment.center,
+                        cacheWidth: 1440,
+                        filterQuality: FilterQuality.high,
                         errorBuilder: (
                           BuildContext context,
                           Object error,
@@ -1904,9 +1915,12 @@ class _RelatedCard extends StatelessWidget {
               child: item.posterPath == null
                   ? const ColoredBox(color: AppColors.cardBackground)
                   : OptimizedNetworkImage(
-                      url: getImageUrl(item.posterPath, 'w342'),
+                      url: getImageUrl(item.posterPath, 'w780'),
+                      width: double.infinity,
+                      height: double.infinity,
                       fit: BoxFit.cover,
-                      cacheWidth: 300,
+                      alignment: Alignment.topCenter,
+                      cacheWidth: 420,
                       errorBuilder: (
                         BuildContext context,
                         Object error,

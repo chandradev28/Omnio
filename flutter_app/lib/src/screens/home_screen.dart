@@ -852,111 +852,130 @@ class _AddonHeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String imageUrl = addonsService.resolveAddonUrl(
-      addon,
-      item.background ?? item.poster,
-    );
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: const BoxDecoration(color: AppColors.cardBackground),
-        child: Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            if (imageUrl.isEmpty)
-              const ColoredBox(color: AppColors.cardBackground)
-            else
-              OptimizedNetworkImage(
-                url: imageUrl,
-                fit: BoxFit.cover,
-                cacheWidth: 1440,
-                errorBuilder: (
-                  BuildContext context,
-                  Object error,
-                  StackTrace? stackTrace,
-                ) {
-                  return const ColoredBox(color: AppColors.cardBackground);
-                },
-              ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[
-                    Colors.black.withOpacity(0.22),
-                    Colors.black.withOpacity(0.42),
-                    Colors.black.withOpacity(0.94),
-                  ],
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double frameAspect = constraints.maxHeight > 0
+            ? constraints.maxWidth / constraints.maxHeight
+            : 2 / 3;
+        final bool usePortraitArtwork = frameAspect < 1.05;
+        final String imageUrl = addonsService.resolveAddonUrl(
+          addon,
+          usePortraitArtwork
+              ? (item.poster ?? item.background)
+              : (item.background ?? item.poster),
+        );
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: const BoxDecoration(color: AppColors.cardBackground),
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                if (imageUrl.isEmpty)
+                  const ColoredBox(color: AppColors.cardBackground)
+                else
+                  OptimizedNetworkImage(
+                    url: imageUrl,
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    alignment: usePortraitArtwork
+                        ? Alignment.topCenter
+                        : Alignment.center,
+                    cacheWidth: 1440,
+                    filterQuality: FilterQuality.high,
+                    errorBuilder: (
+                      BuildContext context,
+                      Object error,
+                      StackTrace? stackTrace,
+                    ) {
+                      return const ColoredBox(
+                        color: AppColors.cardBackground,
+                      );
+                    },
+                  ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: <Color>[
+                        Colors.black.withOpacity(0.22),
+                        Colors.black.withOpacity(0.42),
+                        Colors.black.withOpacity(0.94),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            Positioned(
-              left: 24,
-              right: 24,
-              bottom: 34,
-              child: Column(
-                children: <Widget>[
-                  Text(
-                    item.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 36,
-                      height: 0.96,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    <String>[
-                      item.mediaType == 'tv' ? 'TV Show' : 'Movie',
-                      if ((item.releaseInfo ?? '').isNotEmpty)
-                        item.releaseInfo!,
-                    ].join('  •  '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: 260,
-                    child: FilledButton.icon(
-                      onPressed: onTap,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.text,
-                        foregroundColor: AppColors.background,
-                        shadowColor: accent.withOpacity(0.35),
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
-                      icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                      label: const Text(
-                        'View Details',
-                        style: TextStyle(
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: 34,
+                  child: Column(
+                    children: <Widget>[
+                      Text(
+                        item.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 36,
+                          height: 0.96,
                           fontWeight: FontWeight.w900,
-                          fontSize: 15,
+                          letterSpacing: -1.2,
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      Text(
+                        <String>[
+                          item.mediaType == 'tv' ? 'TV Show' : 'Movie',
+                          if ((item.releaseInfo ?? '').isNotEmpty)
+                            item.releaseInfo!,
+                        ].join('  •  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: 260,
+                        child: FilledButton.icon(
+                          onPressed: onTap,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.text,
+                            foregroundColor: AppColors.background,
+                            shadowColor: accent.withOpacity(0.35),
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                          label: const Text(
+                            'View Details',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1707,7 +1726,8 @@ class _CatalogGridCard extends StatelessWidget {
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,
-                      cacheWidth: 360,
+                      alignment: Alignment.topCenter,
+                      cacheWidth: 480,
                       errorBuilder: (
                         BuildContext context,
                         Object error,
@@ -1789,7 +1809,10 @@ class _CatalogPosterCard extends StatelessWidget {
                   ? const ColoredBox(color: AppColors.cardBackground)
                   : OptimizedNetworkImage(
                       url: posterUrl,
+                      width: double.infinity,
+                      height: double.infinity,
                       fit: BoxFit.cover,
+                      alignment: _posterAlignmentForFrame(height, width),
                       cacheWidth: (width * 4).round(),
                       errorBuilder: (
                         BuildContext context,
@@ -1820,4 +1843,8 @@ class _CatalogPosterCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Alignment _posterAlignmentForFrame(double height, double width) {
+  return height > width ? Alignment.topCenter : Alignment.center;
 }

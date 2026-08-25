@@ -1,4 +1,7 @@
+import 'dart:math';
+
 import '../models/torbox_models.dart';
+import 'tmdb_artwork_selector.dart';
 import 'tmdb_http_service.dart';
 import 'tmdb_image.dart';
 
@@ -6,11 +9,13 @@ import 'tmdb_image.dart';
 /// delaying the initial home render. Addon artwork remains the fallback when
 /// a title cannot be matched or TMDB is unavailable.
 class TmdbArtworkService {
-  TmdbArtworkService({TmdbHttpService? httpService})
-      : _httpService = httpService ?? TmdbHttpService();
+  TmdbArtworkService({TmdbHttpService? httpService, Random? random})
+      : _httpService = httpService ?? TmdbHttpService(),
+        _random = random ?? Random();
 
   final TmdbHttpService _httpService;
-  final Map<String, _Artwork?> _artworkCache = <String, _Artwork?>{};
+  final Random _random;
+  final Map<String, _Artwork> _artworkCache = <String, _Artwork>{};
 
   Future<List<AddonCatalogRow>> enrichCatalogRows(
     List<AddonCatalogRow> rows, {
@@ -24,6 +29,14 @@ class TmdbArtworkService {
     final Map<String, _Artwork> artworkById = <String, _Artwork>{};
     final List<String> ids = <String>[];
     final Set<String> seen = <String>{};
+    final Map<String, String> mediaTypeById = <String, String>{};
+    final Set<String> heroIds = rows.isEmpty
+        ? <String>{}
+        : rows.first.items
+            .take(8)
+            .map((AddonCatalogItem item) => item.id.trim())
+            .where((String id) => id.startsWith('tt'))
+            .toSet();
     for (final AddonCatalogRow row in rows) {
       for (final AddonCatalogItem item in row.items) {
         final String id = item.id.trim();
@@ -31,6 +44,7 @@ class TmdbArtworkService {
           continue;
         }
         ids.add(id);
+        mediaTypeById[id] = item.mediaType;
         if (ids.length >= 40) {
           break;
         }
@@ -44,7 +58,14 @@ class TmdbArtworkService {
       final List<String> batch =
           ids.skip(start).take(6).toList(growable: false);
       final List<_Artwork?> resolved = await Future.wait(
-        batch.map((String id) => _resolveArtwork(id, personalCredential)),
+        batch.map(
+          (String id) => _resolveArtwork(
+            id,
+            mediaTypeById[id] ?? 'movie',
+            personalCredential,
+            includeVariants: heroIds.contains(id),
+          ),
+        ),
       );
       for (int index = 0; index < batch.length; index += 1) {
         final _Artwork? artwork = resolved[index];
@@ -81,11 +102,11 @@ class TmdbArtworkService {
   }
 
   Future<_Artwork?> _resolveArtwork(
-    String imdbId,
-    String? personalCredential,
-  ) async {
-    if (_artworkCache.containsKey(imdbId)) {
-      return _artworkCache[imdbId];
+      String imdbId, String mediaType, String? personalCredential,
+      {required bool includeVariants}) async {
+    final String cacheKey = '$imdbId:${includeVariants ? 'hero' : 'base'}';
+    if (_artworkCache.containsKey(cacheKey)) {
+      return _artworkCache[cacheKey];
     }
 
     try {
@@ -94,32 +115,70 @@ class TmdbArtworkService {
         params: const <String, String>{'external_source': 'imdb_id'},
         apiKeyOverride: personalCredential,
       );
-      final List<dynamic> movies =
-          payload['movie_results'] as List<dynamic>? ?? const <dynamic>[];
-      final List<dynamic> series =
-          payload['tv_results'] as List<dynamic>? ?? const <dynamic>[];
-      final Map<String, dynamic>? match = <dynamic>[...movies, ...series]
+      final String resultKey =
+          mediaType == 'tv' ? 'tv_results' : 'movie_results';
+      final List<dynamic> expectedResults =
+          payload[resultKey] as List<dynamic>? ?? const <dynamic>[];
+      final Map<String, dynamic>? match = expectedResults
           .whereType<Map<String, dynamic>>()
           .cast<Map<String, dynamic>?>()
           .firstWhere((Map<String, dynamic>? item) {
         return item?['poster_path'] != null || item?['backdrop_path'] != null;
       }, orElse: () => null);
       if (match == null) {
-        _artworkCache[imdbId] = null;
         return null;
       }
 
-      final String? posterPath = match['poster_path'] as String?;
-      final String? backdropPath = match['backdrop_path'] as String?;
+      String? posterPath = match['poster_path'] as String?;
+      String? backdropPath = match['backdrop_path'] as String?;
+      if (includeVariants) {
+        final int? tmdbId = (match['id'] as num?)?.toInt();
+        if (tmdbId != null) {
+          try {
+            final String resource = mediaType == 'tv' ? 'tv' : 'movie';
+            final Map<String, dynamic> images = await _httpService.getJson(
+              '/$resource/$tmdbId/images',
+              params: const <String, String>{
+                'include_image_language': 'en,null',
+              },
+              apiKeyOverride: personalCredential,
+            );
+            final int variantSeed = _random.nextInt(1 << 31);
+            posterPath = selectTmdbArtworkPath(
+                  images,
+                  collection: 'posters',
+                  targetAspectRatio: 2 / 3,
+                  variantSeed: variantSeed,
+                ) ??
+                posterPath;
+            backdropPath = selectTmdbArtworkPath(
+                  images,
+                  collection: 'backdrops',
+                  targetAspectRatio: 16 / 9,
+                  variantSeed: variantSeed,
+                ) ??
+                backdropPath;
+          } catch (_) {
+            // The default /find artwork is still a valid high-quality fallback.
+          }
+        }
+      }
       final _Artwork artwork = _Artwork(
-        posterUrl: posterPath == null ? null : getImageUrl(posterPath, 'w780'),
-        backdropUrl:
-            backdropPath == null ? null : getImageUrl(backdropPath, 'w1280'),
+        posterUrl: posterPath == null
+            ? null
+            : getImageUrl(posterPath, includeVariants ? 'original' : 'w780'),
+        backdropUrl: backdropPath == null
+            ? null
+            : getImageUrl(
+                backdropPath,
+                includeVariants ? 'original' : 'w1280',
+              ),
       );
-      _artworkCache[imdbId] = artwork;
+      _artworkCache[cacheKey] = artwork;
       return artwork;
     } catch (_) {
-      _artworkCache[imdbId] = null;
+      // Do not cache network failures. TMDB may become reachable after the
+      // user connects VPN/WARP, and the next refresh should retry enrichment.
       return null;
     }
   }
