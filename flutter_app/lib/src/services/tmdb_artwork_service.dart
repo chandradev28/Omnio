@@ -22,7 +22,7 @@ class TmdbArtworkService {
     required String? personalCredential,
     required bool enabled,
   }) async {
-    if (!enabled || (personalCredential ?? '').trim().isEmpty) {
+    if (!enabled) {
       return rows;
     }
 

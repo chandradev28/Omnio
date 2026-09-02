@@ -20,11 +20,13 @@ class TmdbMediaService implements MediaCatalogService {
   TmdbMediaService({
     AppSettingsRepository? settingsRepository,
     Random? artworkRandom,
+    TmdbHttpService? httpService,
   })  : _settingsRepository = settingsRepository ?? AppSettingsRepository(),
         _artworkRandom = artworkRandom ?? Random(),
-        _httpService = TmdbHttpService(
-          settingsRepository: settingsRepository,
-        );
+        _httpService = httpService ??
+            TmdbHttpService(
+              settingsRepository: settingsRepository,
+            );
 
   final AppSettingsRepository _settingsRepository;
   final Random _artworkRandom;
@@ -34,7 +36,7 @@ class TmdbMediaService implements MediaCatalogService {
   Future<List<MediaSummary>> getTrendingMovies() async {
     final AppSettings settings = await _settingsRepository.loadSettings();
     final Map<String, dynamic> payload = await _fetch(
-      '/3/trending/movie/week',
+      '/trending/movie/week',
       <String, String>{'language': settings.tmdbLanguage},
       settings,
     );
@@ -45,7 +47,7 @@ class TmdbMediaService implements MediaCatalogService {
   Future<List<MediaSummary>> getTrendingSeries() async {
     final AppSettings settings = await _settingsRepository.loadSettings();
     final Map<String, dynamic> payload = await _fetch(
-      '/3/trending/tv/week',
+      '/trending/tv/week',
       <String, String>{'language': settings.tmdbLanguage},
       settings,
     );
@@ -56,7 +58,7 @@ class TmdbMediaService implements MediaCatalogService {
   Future<List<MediaSummary>> getNowPlayingMovies() async {
     final AppSettings settings = await _settingsRepository.loadSettings();
     final Map<String, dynamic> payload = await _fetch(
-      '/3/movie/now_playing',
+      '/movie/now_playing',
       <String, String>{
         'language': settings.tmdbLanguage,
         'region': 'US',
@@ -79,7 +81,7 @@ class TmdbMediaService implements MediaCatalogService {
       if (enrich && settings.tmdbArtworkEnabled) 'images',
     ];
     final Map<String, dynamic> detail = await _fetch(
-      '/3/$resource/$id',
+      '/$resource/$id',
       <String, String>{
         'language': settings.tmdbLanguage,
         'append_to_response': appends.join(','),
@@ -176,7 +178,7 @@ class TmdbMediaService implements MediaCatalogService {
 
     final AppSettings settings = await _settingsRepository.loadSettings();
     final Map<String, dynamic> payload = await _fetch(
-      '/3/find/$trimmed',
+      '/find/$trimmed',
       <String, String>{'external_source': 'imdb_id'},
       settings,
     );
@@ -202,7 +204,7 @@ class TmdbMediaService implements MediaCatalogService {
       return const <EpisodeItem>[];
     }
     final Map<String, dynamic> payload = await _fetch(
-        '/3/tv/$tvId/season/$seasonNumber',
+        '/tv/$tvId/season/$seasonNumber',
         <String, String>{'language': settings.tmdbLanguage},
         settings);
     final List<dynamic> results =

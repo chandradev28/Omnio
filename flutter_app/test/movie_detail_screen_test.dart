@@ -194,6 +194,13 @@ void main() {
     expect(find.text('Addon Show'), findsWidgets);
     expect(find.textContaining('Loaded from Stremio metadata'), findsOneWidget);
     expect(find.text('Drama'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Pilot'),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Pilot'), findsOneWidget);
   });
 
   testWidgets('movie detail enriches addon metadata with TMDB sections', (
@@ -386,6 +393,24 @@ class _FakeMetadataAddonsService extends StremioAddonsService {
       country: 'United States of America',
       language: 'en',
       status: 'Ended',
+      videos: <AddonMetaVideo>[
+        AddonMetaVideo(
+          id: 'tt0903747:1:1',
+          name: 'Pilot',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          overview: 'The first episode.',
+          thumbnail: 'https://example.test/episode.jpg',
+          released: '2008-01-20',
+          runtimeMinutes: 47,
+        ),
+      ],
+      trailers: <AddonMetaTrailer>[
+        AddonMetaTrailer(
+          name: 'Addon Trailer',
+          key: 'addon-trailer',
+        ),
+      ],
     );
   }
 }

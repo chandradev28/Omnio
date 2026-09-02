@@ -156,17 +156,20 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
     final String externalId = (widget.externalId ?? '').trim();
     if (externalId.isNotEmpty) {
-      final MediaDetail? addonDetail = await _fetchAddonDetail(externalId);
-      MediaDetail? tmdbDetail;
+      final Future<MediaDetail?> addonFuture = _fetchAddonDetail(externalId);
       Object? tmdbError;
-      try {
-        tmdbDetail = await widget.mediaService.findMediaByExternalId(
-          externalId,
-          widget.mediaType,
-        );
-      } catch (error) {
+      final Future<MediaDetail?> tmdbFuture = widget.mediaService
+          .findMediaByExternalId(externalId, widget.mediaType)
+          .then<MediaDetail?>((MediaDetail? detail) => detail)
+          .onError((Object error, StackTrace stackTrace) {
         tmdbError = error;
-      }
+        return null;
+      });
+      final List<MediaDetail?> results = await Future.wait<MediaDetail?>(
+        <Future<MediaDetail?>>[addonFuture, tmdbFuture],
+      );
+      final MediaDetail? addonDetail = results.first;
+      final MediaDetail? tmdbDetail = results.last;
 
       if (addonDetail != null && tmdbDetail != null) {
         return _mergeDetails(addonDetail, tmdbDetail, externalId);
@@ -183,7 +186,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         return fallback;
       }
       if (tmdbError != null) {
-        throw tmdbError;
+        throw tmdbError!;
       }
     }
 
@@ -236,6 +239,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           : addon.productionCompanies,
       trailers:
           enriched.trailers.isNotEmpty ? enriched.trailers : addon.trailers,
+      episodes:
+          enriched.episodes.isNotEmpty ? enriched.episodes : addon.episodes,
       director: enriched.director ?? addon.director,
       originalLanguage: enriched.originalLanguage ?? addon.originalLanguage,
       status: enriched.status ?? addon.status,
@@ -268,6 +273,52 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             ? fallbackTitle
             : externalId;
 
+    final List<EpisodeItem> episodes = meta.videos
+        .map(
+          (AddonMetaVideo video) => EpisodeItem(
+            id: video.numericId,
+            name: video.name,
+            overview: video.overview ?? '',
+            episodeNumber: video.episodeNumber,
+            seasonNumber: video.seasonNumber,
+            airDate: video.released ?? '',
+            voteAverage: video.rating,
+            runtime: video.runtimeMinutes,
+            stillPath: video.thumbnail,
+          ),
+        )
+        .toList(growable: false)
+      ..sort((EpisodeItem a, EpisodeItem b) {
+        final int seasonOrder = a.seasonNumber.compareTo(b.seasonNumber);
+        return seasonOrder != 0
+            ? seasonOrder
+            : a.episodeNumber.compareTo(b.episodeNumber);
+      });
+    final Map<int, List<AddonMetaVideo>> videosBySeason =
+        <int, List<AddonMetaVideo>>{};
+    for (final AddonMetaVideo video in meta.videos) {
+      videosBySeason
+          .putIfAbsent(video.seasonNumber, () => <AddonMetaVideo>[])
+          .add(video);
+    }
+    final List<SeasonSummary> seasons = videosBySeason.entries
+        .where((MapEntry<int, List<AddonMetaVideo>> entry) => entry.key > 0)
+        .map(
+          (MapEntry<int, List<AddonMetaVideo>> entry) => SeasonSummary(
+            id: entry.key,
+            name: 'Season ${entry.key}',
+            posterPath: entry.value
+                .map((AddonMetaVideo video) => video.seasonPoster)
+                .whereType<String>()
+                .firstOrNull,
+            seasonNumber: entry.key,
+            episodeCount: entry.value.length,
+          ),
+        )
+        .toList(growable: false)
+      ..sort((SeasonSummary a, SeasonSummary b) =>
+          a.seasonNumber.compareTo(b.seasonNumber));
+
     return MediaDetail(
       id: widget.id,
       mediaType: meta.mediaType == 'tv' ? 'tv' : widget.mediaType,
@@ -286,8 +337,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       genres: meta.genres
           .map((String genre) => GenreItem(id: 0, name: genre))
           .toList(growable: false),
-      seasons: const <SeasonSummary>[],
-      numberOfSeasons: 0,
+      seasons: seasons,
+      numberOfSeasons: seasons.length,
       networks: widget.fallbackSourceName == null
           ? const <NetworkItem>[]
           : <NetworkItem>[
@@ -307,6 +358,17 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           )
           .toList(growable: false),
       similarItems: const <MediaSummary>[],
+      episodes: episodes,
+      trailers: meta.trailers
+          .map(
+            (AddonMetaTrailer trailer) => MediaTrailer(
+              name: trailer.name,
+              key: trailer.key,
+              site: trailer.site,
+              type: trailer.type,
+            ),
+          )
+          .toList(growable: false),
       director: meta.director ?? widget.fallbackSourceName,
       originalLanguage: meta.language,
       status: meta.status,
@@ -360,15 +422,29 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
   Future<void> _loadEpisodes(int seasonNumber) async {
     final MediaDetail? detail = _detail;
-    if (detail == null || detail.id <= 0 || detail.mediaType != 'tv') {
+    if (detail == null || detail.mediaType != 'tv') {
       return;
     }
+
+    final List<EpisodeItem> addonEpisodes = detail.episodes
+        .where((EpisodeItem episode) => episode.seasonNumber == seasonNumber)
+        .toList(growable: false);
 
     final int request = ++_episodeRequest;
     setState(() {
       _selectedSeasonNumber = seasonNumber;
       _loadingEpisodes = true;
+      if (addonEpisodes.isNotEmpty) {
+        _episodes = addonEpisodes;
+      }
     });
+
+    if (detail.id <= 0) {
+      setState(() {
+        _loadingEpisodes = false;
+      });
+      return;
+    }
 
     try {
       final List<EpisodeItem> episodes =
@@ -377,7 +453,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         return;
       }
       setState(() {
-        _episodes = episodes;
+        _episodes = _mergeEpisodes(addonEpisodes, episodes);
         _loadingEpisodes = false;
       });
     } catch (_) {
@@ -385,10 +461,50 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         return;
       }
       setState(() {
-        _episodes = const <EpisodeItem>[];
+        _episodes = addonEpisodes;
         _loadingEpisodes = false;
       });
     }
+  }
+
+  List<EpisodeItem> _mergeEpisodes(
+    List<EpisodeItem> addonEpisodes,
+    List<EpisodeItem> tmdbEpisodes,
+  ) {
+    if (addonEpisodes.isEmpty) {
+      return tmdbEpisodes;
+    }
+    if (tmdbEpisodes.isEmpty) {
+      return addonEpisodes;
+    }
+
+    final Map<int, EpisodeItem> addonByNumber = <int, EpisodeItem>{
+      for (final EpisodeItem episode in addonEpisodes)
+        episode.episodeNumber: episode,
+    };
+    final List<EpisodeItem> merged = tmdbEpisodes.map((EpisodeItem tmdb) {
+      final EpisodeItem? addon = addonByNumber.remove(tmdb.episodeNumber);
+      if (addon == null) {
+        return tmdb;
+      }
+      return EpisodeItem(
+        id: tmdb.id > 0 ? tmdb.id : addon.id,
+        name: tmdb.name.trim().isNotEmpty ? tmdb.name : addon.name,
+        overview:
+            tmdb.overview.trim().isNotEmpty ? tmdb.overview : addon.overview,
+        episodeNumber: tmdb.episodeNumber,
+        seasonNumber: tmdb.seasonNumber,
+        airDate: tmdb.airDate.trim().isNotEmpty ? tmdb.airDate : addon.airDate,
+        voteAverage:
+            tmdb.voteAverage > 0 ? tmdb.voteAverage : addon.voteAverage,
+        runtime: tmdb.runtime > 0 ? tmdb.runtime : addon.runtime,
+        stillPath: tmdb.stillPath ?? addon.stillPath,
+      );
+    }).toList(growable: true)
+      ..addAll(addonByNumber.values)
+      ..sort((EpisodeItem a, EpisodeItem b) =>
+          a.episodeNumber.compareTo(b.episodeNumber));
+    return merged;
   }
 
   Future<void> _loadFavoriteState() async {

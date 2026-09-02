@@ -6,10 +6,9 @@ import 'app_settings_repository.dart';
 
 /// Shared TMDB transport for metadata, search, and provider discovery.
 ///
-/// WARP is a device-level route, so the app cannot turn it on itself. When a
-/// network still blocks TMDB, the direct request is followed by the same
-/// public proxy fallbacks used by the original app. A successful JSON response
-/// always wins; HTML block pages are rejected instead of being parsed.
+/// WARP is a device-level route, so the app cannot turn it on itself. Requests
+/// go directly to TMDB so a user's credential is never disclosed to a public
+/// proxy. HTML block pages are rejected instead of being parsed.
 class TmdbHttpService {
   TmdbHttpService({AppSettingsRepository? settingsRepository})
       : _settingsRepository = settingsRepository ?? AppSettingsRepository();
@@ -17,13 +16,6 @@ class TmdbHttpService {
   static const String apiKey = 'cd45143a9ade518a4381e765c719e68b';
   static const String apiHost = 'api.themoviedb.org';
   static const String apiPath = '/3';
-
-  // Keep direct/WARP first. Proxies are only used when the route itself fails.
-  static const List<String> _proxyPrefixes = <String>[
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?url=',
-    'https://api.codetabs.com/v1/proxy?quest=',
-  ];
 
   final AppSettingsRepository _settingsRepository;
 
@@ -59,7 +51,6 @@ class TmdbHttpService {
     await getJson(
       '/configuration',
       apiKeyOverride: credential,
-      allowProxy: !_isBearerToken(credential),
     );
     return credential;
   }
@@ -69,7 +60,6 @@ class TmdbHttpService {
     Map<String, String> params = const <String, String>{},
     AppSettings? settings,
     String? apiKeyOverride,
-    bool allowProxy = true,
   }) async {
     final AppSettings effectiveSettings =
         settings ?? await _settingsRepository.loadSettings();
@@ -86,36 +76,11 @@ class TmdbHttpService {
       },
     );
 
-    Object? lastError;
-    try {
-      return await _fetchJson(
-        directUri,
-        credential: credential,
-        timeout: const Duration(seconds: 12),
-      );
-    } catch (error) {
-      lastError = error;
-      if (!allowProxy || !_shouldTryProxy(error)) {
-        rethrow;
-      }
-    }
-
-    for (final String prefix in _proxyPrefixes) {
-      try {
-        final Uri proxyUri = Uri.parse(
-          '$prefix${Uri.encodeComponent(directUri.toString())}',
-        );
-        return await _fetchJson(
-          proxyUri,
-          credential: const _TmdbCredential.query(''),
-          timeout: const Duration(seconds: 10),
-        );
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    throw lastError ?? HttpException('TMDB request failed.', uri: directUri);
+    return _fetchJson(
+      directUri,
+      credential: credential,
+      timeout: const Duration(seconds: 12),
+    );
   }
 
   _TmdbCredential _credentialFor(
@@ -135,24 +100,12 @@ class TmdbHttpService {
     return value.split('.').length == 3 || value.startsWith('eyJ');
   }
 
-  bool _shouldTryProxy(Object error) {
-    if (error is TmdbRequestException) {
-      return error.statusCode == HttpStatus.forbidden ||
-          error.statusCode == HttpStatus.tooManyRequests ||
-          error.statusCode >= 500;
-    }
-    return true;
-  }
-
   Future<Map<String, dynamic>> _fetchJson(
     Uri uri, {
     required _TmdbCredential credential,
     required Duration timeout,
   }) async {
-    final HttpClient client = HttpClient()
-      ..connectionTimeout = timeout
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
+    final HttpClient client = HttpClient()..connectionTimeout = timeout;
 
     try {
       final HttpClientRequest request = await client.getUrl(uri);

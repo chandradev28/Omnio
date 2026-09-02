@@ -247,6 +247,7 @@ class MediaDetail {
     required this.imdbId,
     required this.cast,
     required this.similarItems,
+    this.episodes = const <EpisodeItem>[],
     this.productionCompanies = const <ProductionCompanyItem>[],
     this.trailers = const <MediaTrailer>[],
     this.director,
@@ -274,6 +275,7 @@ class MediaDetail {
   final String? imdbId;
   final List<CastItem> cast;
   final List<MediaSummary> similarItems;
+  final List<EpisodeItem> episodes;
   final List<MediaTrailer> trailers;
   final String? director;
   final String? originalLanguage;

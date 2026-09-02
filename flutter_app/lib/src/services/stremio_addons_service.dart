@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import '../models/search_result.dart';
@@ -12,6 +13,11 @@ class StremioAddonsService {
             store ?? const LocalJsonStore('.streamed_installed_addons.json');
 
   final LocalJsonStore _store;
+  final Map<String, AddonCatalogRow> _catalogRowCache =
+      <String, AddonCatalogRow>{};
+  final Map<String, AddonMetaItem> _metadataCache = <String, AddonMetaItem>{};
+  final Map<String, Future<AddonMetaItem?>> _metadataRequests =
+      <String, Future<AddonMetaItem?>>{};
 
   Future<List<AddonManifest>> getInstalledAddons() async {
     final File file = await _store.file();
@@ -235,30 +241,94 @@ class StremioAddonsService {
 
   Future<List<AddonCatalogRow>> fetchAllCatalogRows() async {
     final List<AddonManifest> addons = await getEnabledAddons();
-    final List<AddonCatalogRow> rows = <AddonCatalogRow>[];
-
+    final List<_CatalogRequest> requests = <_CatalogRequest>[];
     for (final AddonManifest addon in addons) {
-      if (addon.catalogs.isEmpty) continue;
-      for (final AddonCatalog catalog in addon.catalogs.take(5)) {
-        try {
-          final List<AddonCatalogItem> items =
-              await fetchCatalog(addon, catalog);
-          if (items.isNotEmpty) {
-            rows.add(AddonCatalogRow(
-              addonName: addon.name,
-              catalogName: catalog.name,
-              catalog: catalog,
-              addon: addon,
-              items: items,
-            ));
-          }
-        } catch (_) {}
+      for (final AddonCatalog catalog in addon.catalogs) {
+        if (catalog.type != 'movie' && catalog.type != 'series') {
+          continue;
+        }
+        if (catalog.hasRequiredExtras ||
+            catalog.id == 'last-videos' ||
+            catalog.id == 'calendar-videos') {
+          continue;
+        }
+        requests.add(_CatalogRequest(addon: addon, catalog: catalog));
+      }
+    }
+
+    final List<AddonCatalogRow> rows = <AddonCatalogRow>[];
+    for (int start = 0; start < requests.length; start += 4) {
+      final List<_CatalogRequest> batch =
+          requests.skip(start).take(4).toList(growable: false);
+      final List<AddonCatalogRow?> loaded = await Future.wait(
+        batch.map(_fetchCatalogRow),
+      );
+      for (final AddonCatalogRow? row in loaded) {
+        if (row != null && row.items.isNotEmpty) {
+          rows.add(row);
+        }
       }
     }
     return rows;
   }
 
+  Future<AddonCatalogRow?> _fetchCatalogRow(_CatalogRequest request) async {
+    final String cacheKey =
+        '${request.addon.url}|${request.catalog.type}|${request.catalog.id}';
+    try {
+      final List<AddonCatalogItem> items =
+          await fetchCatalog(request.addon, request.catalog);
+      if (items.isEmpty) {
+        return _catalogRowCache[cacheKey];
+      }
+      final AddonCatalogRow row = AddonCatalogRow(
+        addonName: request.addon.name,
+        catalogName: request.catalog.name,
+        catalog: request.catalog,
+        addon: request.addon,
+        items: items,
+      );
+      _catalogRowCache[cacheKey] = row;
+      return row;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Catalog request failed for ${request.addon.name} / '
+        '${request.catalog.type}:${request.catalog.id}',
+        name: 'StremioAddonsService',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return _catalogRowCache[cacheKey];
+    }
+  }
+
   Future<AddonMetaItem?> fetchMetadata({
+    required String mediaType,
+    required String id,
+  }) async {
+    final String cacheKey = '$mediaType:${id.trim()}';
+    final AddonMetaItem? cached = _metadataCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+    final Future<AddonMetaItem?> request = _metadataRequests.putIfAbsent(
+      cacheKey,
+      () => _fetchMetadataUncached(mediaType: mediaType, id: id),
+    );
+    try {
+      final AddonMetaItem? result = await request;
+      if (result != null) {
+        _metadataCache[cacheKey] = result;
+      }
+      return result;
+    } finally {
+      if (identical(_metadataRequests[cacheKey], request)) {
+        _metadataRequests.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<AddonMetaItem?> _fetchMetadataUncached({
     required String mediaType,
     required String id,
   }) async {
@@ -289,7 +359,14 @@ class StremioAddonsService {
         if (item.name.trim().isNotEmpty || item.description != null) {
           return item;
         }
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        developer.log(
+          'Metadata request failed for ${addon.name} / $contentType:$id',
+          name: 'StremioAddonsService',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
     return null;
   }
@@ -438,9 +515,7 @@ class StremioAddonsService {
 
   Future<Map<String, dynamic>> _fetchJson(Uri uri) async {
     final HttpClient client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 30)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
+      ..connectionTimeout = const Duration(seconds: 30);
     try {
       final HttpClientRequest request = await client.getUrl(uri);
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
@@ -458,7 +533,10 @@ class StremioAddonsService {
         );
       }
 
-      final String raw = await response.transform(utf8.decoder).join();
+      final String raw = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 20));
       return jsonDecode(raw) as Map<String, dynamic>;
     } on FormatException {
       throw const FormatException('Addon server returned invalid JSON.');
@@ -744,6 +822,13 @@ class StremioAddonsService {
     }
     return value.toLowerCase();
   }
+}
+
+class _CatalogRequest {
+  const _CatalogRequest({required this.addon, required this.catalog});
+
+  final AddonManifest addon;
+  final AddonCatalog catalog;
 }
 
 class AddonSearchResult {

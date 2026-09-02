@@ -858,6 +858,91 @@ class AddonCatalogItem {
   }
 }
 
+class AddonMetaVideo {
+  const AddonMetaVideo({
+    required this.id,
+    required this.name,
+    required this.seasonNumber,
+    required this.episodeNumber,
+    this.numericId = 0,
+    this.overview,
+    this.thumbnail,
+    this.seasonPoster,
+    this.released,
+    this.runtimeMinutes = 0,
+    this.rating = 0,
+  });
+
+  final String id;
+  final String name;
+  final int seasonNumber;
+  final int episodeNumber;
+  final int numericId;
+  final String? overview;
+  final String? thumbnail;
+  final String? seasonPoster;
+  final String? released;
+  final int runtimeMinutes;
+  final double rating;
+
+  factory AddonMetaVideo.fromJson(Map<String, dynamic> json) {
+    final int episodeNumber =
+        _readInt(json['episode']) ?? _readInt(json['number']) ?? 0;
+    return AddonMetaVideo(
+      id: _readString(json['id']) ?? '',
+      name: _readString(json['name']) ??
+          _readString(json['title']) ??
+          (episodeNumber > 0 ? 'Episode $episodeNumber' : 'Episode'),
+      seasonNumber: _readInt(json['season']) ?? 0,
+      episodeNumber: episodeNumber,
+      numericId: _readInt(json['tvdb_id']) ?? 0,
+      overview:
+          _readString(json['overview']) ?? _readString(json['description']),
+      thumbnail: _readString(json['thumbnail']),
+      seasonPoster: _readString(json['seasonPoster']) ??
+          _readString(json['season_poster']),
+      released:
+          _readString(json['released']) ?? _readString(json['firstAired']),
+      runtimeMinutes: _readMinutes(json['runtime']),
+      rating: _readDouble(json['rating']) ?? 0,
+    );
+  }
+}
+
+class AddonMetaTrailer {
+  const AddonMetaTrailer({
+    required this.name,
+    required this.key,
+    this.site = 'YouTube',
+    this.type = 'Trailer',
+  });
+
+  final String name;
+  final String key;
+  final String site;
+  final String type;
+}
+
+class AddonMetaLink {
+  const AddonMetaLink({
+    required this.name,
+    required this.category,
+    required this.url,
+  });
+
+  final String name;
+  final String category;
+  final String url;
+
+  factory AddonMetaLink.fromJson(Map<String, dynamic> json) {
+    return AddonMetaLink(
+      name: _readString(json['name']) ?? '',
+      category: _readString(json['category']) ?? '',
+      url: _readString(json['url']) ?? '',
+    );
+  }
+}
+
 class AddonMetaItem {
   const AddonMetaItem({
     required this.id,
@@ -875,6 +960,11 @@ class AddonMetaItem {
     this.country,
     this.language,
     this.status,
+    this.videos = const <AddonMetaVideo>[],
+    this.trailers = const <AddonMetaTrailer>[],
+    this.links = const <AddonMetaLink>[],
+    this.defaultVideoId,
+    this.hasScheduledVideos = false,
   });
 
   final String id;
@@ -892,6 +982,11 @@ class AddonMetaItem {
   final String? country;
   final String? language;
   final String? status;
+  final List<AddonMetaVideo> videos;
+  final List<AddonMetaTrailer> trailers;
+  final List<AddonMetaLink> links;
+  final String? defaultVideoId;
+  final bool hasScheduledVideos;
 
   String get mediaType => type == 'series' ? 'tv' : type;
 
@@ -912,6 +1007,24 @@ class AddonMetaItem {
       country: _readStringList(json['country']).join(', '),
       language: _readString(json['language']),
       status: _readString(json['status']),
+      videos: ((json['videos'] as List<dynamic>?) ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(AddonMetaVideo.fromJson)
+          .where((AddonMetaVideo video) =>
+              video.seasonNumber >= 0 && video.episodeNumber > 0)
+          .toList(growable: false),
+      trailers: _readAddonTrailers(json),
+      links: ((json['links'] as List<dynamic>?) ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(AddonMetaLink.fromJson)
+          .where((AddonMetaLink link) => link.name.isNotEmpty)
+          .toList(growable: false),
+      defaultVideoId: _readString(
+        (json['behaviorHints'] as Map<String, dynamic>?)?['defaultVideoId'],
+      ),
+      hasScheduledVideos: (json['behaviorHints']
+              as Map<String, dynamic>?)?['hasScheduledVideos'] as bool? ??
+          false,
     );
   }
 }
@@ -938,24 +1051,32 @@ class AddonCatalog {
     required this.id,
     required this.name,
     this.extraNames = const <String>[],
+    this.requiredExtraNames = const <String>[],
   });
 
   final String type;
   final String id;
   final String name;
   final List<String> extraNames;
+  final List<String> requiredExtraNames;
 
   bool get supportsSearch => extraNames.contains('search');
+  bool get hasRequiredExtras => requiredExtraNames.isNotEmpty;
 
   factory AddonCatalog.fromJson(Map<String, dynamic> json) {
     final Set<String> extraNames = <String>{};
+    final Set<String> requiredExtraNames = <String>{};
     final dynamic rawExtra = json['extra'];
     if (rawExtra is List<dynamic>) {
       for (final dynamic value in rawExtra) {
         if (value is String) {
           extraNames.add(value);
         } else if (value is Map<String, dynamic> && value['name'] is String) {
-          extraNames.add(value['name'] as String);
+          final String name = value['name'] as String;
+          extraNames.add(name);
+          if (value['isRequired'] == true) {
+            requiredExtraNames.add(name);
+          }
         }
       }
     }
@@ -971,6 +1092,7 @@ class AddonCatalog {
       id: (json['id'] as String?) ?? '',
       name: (json['name'] as String?) ?? '',
       extraNames: extraNames.toList(growable: false),
+      requiredExtraNames: requiredExtraNames.toList(growable: false),
     );
   }
 
@@ -980,7 +1102,10 @@ class AddonCatalog {
       'id': id,
       'name': name,
       'extra': extraNames
-          .map((String name) => <String, dynamic>{'name': name})
+          .map((String name) => <String, dynamic>{
+                'name': name,
+                if (requiredExtraNames.contains(name)) 'isRequired': true,
+              })
           .toList(growable: false),
       'extraSupported': extraNames,
     };
@@ -1348,6 +1473,71 @@ List<String> _readStringList(dynamic value) {
   }
   final String? single = _readString(value);
   return single == null ? const <String>[] : <String>[single];
+}
+
+double? _readDouble(dynamic value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  return double.tryParse(value?.toString() ?? '');
+}
+
+int _readMinutes(dynamic value) {
+  if (value is num) {
+    return value.toInt();
+  }
+  final String text = value?.toString() ?? '';
+  final Match? hours = RegExp(r'(\d+)\s*h').firstMatch(text);
+  final Match? minutes = RegExp(r'(\d+)\s*m').firstMatch(text);
+  if (hours != null || minutes != null) {
+    return (int.tryParse(hours?.group(1) ?? '') ?? 0) * 60 +
+        (int.tryParse(minutes?.group(1) ?? '') ?? 0);
+  }
+  return int.tryParse(RegExp(r'\d+').firstMatch(text)?.group(0) ?? '') ?? 0;
+}
+
+List<AddonMetaTrailer> _readAddonTrailers(Map<String, dynamic> json) {
+  final List<AddonMetaTrailer> trailers = <AddonMetaTrailer>[];
+  final Set<String> seen = <String>{};
+
+  void addTrailer({
+    required String? key,
+    required String? name,
+    String? type,
+  }) {
+    final String normalizedKey = (key ?? '').trim();
+    if (normalizedKey.isEmpty || !seen.add(normalizedKey)) {
+      return;
+    }
+    final String normalizedName = (name ?? '').trim();
+    final String normalizedType = (type ?? '').trim();
+    trailers.add(
+      AddonMetaTrailer(
+        name: normalizedName.isEmpty ? 'Trailer' : normalizedName,
+        key: normalizedKey,
+        type: normalizedType.isEmpty ? 'Trailer' : normalizedType,
+      ),
+    );
+  }
+
+  for (final Map<String, dynamic> trailer
+      in ((json['trailers'] as List<dynamic>?) ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()) {
+    addTrailer(
+      key: _readString(trailer['source']) ?? _readString(trailer['ytId']),
+      name: _readString(trailer['name']) ?? _readString(trailer['type']),
+      type: _readString(trailer['type']),
+    );
+  }
+  for (final Map<String, dynamic> trailer
+      in ((json['trailerStreams'] as List<dynamic>?) ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()) {
+    addTrailer(
+      key: _readString(trailer['ytId']) ?? _readString(trailer['source']),
+      name: _readString(trailer['title']),
+    );
+  }
+  return trailers;
 }
 
 class MagnetHistoryItem {
