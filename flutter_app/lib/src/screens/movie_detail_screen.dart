@@ -15,6 +15,7 @@ import '../theme/app_colors.dart';
 import '../widgets/optimized_network_image.dart';
 import '../widgets/title_logo.dart';
 import 'episode_screen.dart';
+import 'person_detail_screen.dart';
 import 'magnet_screen.dart';
 import 'streamed_sources_screen.dart';
 
@@ -350,7 +351,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           .entries
           .map(
             (MapEntry<int, String> entry) => CastItem(
-              id: entry.key,
+              id: 0,
               name: entry.value,
               character: '',
               profilePath: null,
@@ -920,7 +921,15 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 .map(
                                   (CastItem member) => Padding(
                                     padding: const EdgeInsets.only(right: 18),
-                                    child: _CastCard(member: member),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(16),
+                                      onTap: () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                              builder: (_) =>
+                                                  PersonDetailScreen(
+                                                      member: member))),
+                                      child: _CastCard(member: member),
+                                    ),
                                   ),
                                 )
                                 .toList(growable: false),

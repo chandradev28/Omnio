@@ -21,6 +21,7 @@ class SearchResult {
     this.originCountry = const <String>[],
     this.externalId,
     this.sourceName,
+    this.sourceId,
   });
 
   final int id;
@@ -44,6 +45,7 @@ class SearchResult {
   final List<String> originCountry;
   final String? externalId;
   final String? sourceName;
+  final String? sourceId;
 
   factory SearchResult.fromJson(Map<String, dynamic> json) {
     return SearchResult(
@@ -73,6 +75,7 @@ class SearchResult {
               .toList(growable: false),
       externalId: json['external_id'] as String?,
       sourceName: json['source_name'] as String?,
+      sourceId: json['source_id'] as String?,
     );
   }
 

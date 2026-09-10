@@ -41,6 +41,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _hasSearched = false;
   String? _searchError;
   SearchFilter _activeFilter = SearchFilter.all;
+  String? _activeSource;
   int _searchVersion = 0;
   AppSettings _settings = const AppSettings();
 
@@ -78,6 +79,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _onQueryChanged(String value) {
     _debounce?.cancel();
+    _searchVersion++;
     setState(() {});
 
     if (value.trim().isEmpty) {
@@ -118,6 +120,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
       setState(() {
         _results = results;
+        _activeSource = null;
       });
     } catch (error) {
       if (!mounted || requestVersion != _searchVersion) {
@@ -139,6 +142,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _clearQuery() {
     _debounce?.cancel();
+    _searchVersion++;
     _controller.clear();
     setState(() {
       _results = const <SearchResult>[];
@@ -184,17 +188,22 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   List<SearchResult> get _filteredResults {
+    final results = _results
+        .where((item) =>
+            _activeSource == null ||
+            (item.sourceName ?? 'TMDB') == _activeSource)
+        .toList();
     switch (_activeFilter) {
       case SearchFilter.movie:
-        return _results
+        return results
             .where((SearchResult item) => item.mediaType == 'movie')
             .toList(growable: false);
       case SearchFilter.tv:
-        return _results
+        return results
             .where((SearchResult item) => item.mediaType == 'tv')
             .toList(growable: false);
       case SearchFilter.all:
-        return _results;
+        return results;
     }
   }
 
@@ -297,6 +306,31 @@ class _SearchScreenState extends State<SearchScreen> {
                             ],
                           ),
                         ],
+                        if (_results.isNotEmpty && !_loading)
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(children: [
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                    label: const Text('All providers'),
+                                    selected: _activeSource == null,
+                                    onSelected: (_) =>
+                                        setState(() => _activeSource = null)),
+                              ),
+                              for (final source in _results
+                                  .map((item) => item.sourceName ?? 'TMDB')
+                                  .toSet())
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                      label: Text(source),
+                                      selected: _activeSource == source,
+                                      onSelected: (_) => setState(
+                                          () => _activeSource = source)),
+                                ),
+                            ]),
+                          ),
                         if (_hasSearched &&
                             !_loading &&
                             filteredResults.isNotEmpty) ...<Widget>[
@@ -318,32 +352,33 @@ class _SearchScreenState extends State<SearchScreen> {
                           _SearchErrorState(message: _searchError!)
                         else if (filteredResults.isEmpty)
                           const _NoResultsState()
-                        else
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: filteredResults.length,
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              mainAxisSpacing: 22,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 0.58,
-                            ),
-                            itemBuilder: (BuildContext context, int index) {
-                              final SearchResult item = filteredResults[index];
-                              return _SearchResultCard(
-                                item: item,
-                                settings: _settings,
-                                onTap: () => _openDetail(item),
-                              );
-                            },
-                          ),
-                        const SizedBox(height: 120),
                       ],
                     ),
                   ),
                 ),
+                if (!_loading &&
+                    _searchError == null &&
+                    filteredResults.isNotEmpty)
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppLayout.horizontalPadding),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              mainAxisSpacing: 22,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 0.58),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final item = filteredResults[index];
+                        return _SearchResultCard(
+                            item: item,
+                            settings: _settings,
+                            onTap: () => _openDetail(item));
+                      }, childCount: filteredResults.length),
+                    ),
+                  ),
+                const SliverToBoxAdapter(child: SizedBox(height: 120)),
               ],
             ),
           ),

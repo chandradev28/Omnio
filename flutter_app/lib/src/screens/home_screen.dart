@@ -60,6 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    StremioAddonsService.changes.addListener(_addonsChanged);
+    widget.addonsService.catalogRows.addListener(_catalogsArrived);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -70,8 +72,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    StremioAddonsService.changes.removeListener(_addonsChanged);
+    widget.addonsService.catalogRows.removeListener(_catalogsArrived);
     _heroController.dispose();
     super.dispose();
+  }
+
+  void _addonsChanged() {
+    if (mounted) _loadHome();
+  }
+
+  void _catalogsArrived() {
+    if (!mounted) return;
+    setState(() {
+      _catalogRows = widget.addonsService.catalogRows.value;
+    });
   }
 
   Future<void> _loadHome() async {
@@ -130,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       setState(() {
         _loading = false;
-        _catalogRows = const <AddonCatalogRow>[];
       });
     }
   }
@@ -172,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openCatalogItem(AddonCatalogItem item) async {
-    final String imdbId = item.id.startsWith('tt') ? item.id : '';
+    final String imdbId = item.id.startsWith('tmdb:') ? '' : item.id;
 
     if (imdbId.isNotEmpty) {
       Navigator.of(context).push<void>(
@@ -187,6 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
             fallbackOverview: item.description,
             fallbackReleaseInfo: item.releaseInfo,
             mediaService: widget.mediaService,
+            addonsService: widget.addonsService,
           ),
         ),
       );
@@ -551,6 +566,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 for (final AddonCatalogRow row in _catalogRows) ...[
                   _SectionHeader(
                     title: row.catalogName,
+                    subtitle: row.addonName,
                     actionLabel: 'View All',
                     accent: accent,
                     onAction: () => _openCatalogRow(row),
@@ -566,6 +582,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ],
+              if (widget.addonsService.catalogErrors.isNotEmpty)
+                SliverToBoxAdapter(
+                    child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final name
+                            in widget.addonsService.catalogErrors.keys)
+                          Text(
+                              '$name could not load. Check the addon configuration or retry.',
+                              style:
+                                  const TextStyle(color: AppColors.textMuted)),
+                        TextButton(
+                            onPressed: _loadHome,
+                            child: const Text('Retry catalogs')),
+                      ]),
+                )),
               const SliverToBoxAdapter(child: SizedBox(height: 92)),
             ],
           ),
@@ -986,9 +1020,11 @@ class _SectionHeader extends StatelessWidget {
     required this.accent,
     this.actionLabel,
     this.onAction,
+    this.subtitle,
   });
 
   final String title;
+  final String? subtitle;
   final Color accent;
   final String? actionLabel;
   final VoidCallback? onAction;
@@ -1000,11 +1036,14 @@ class _SectionHeader extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
         child: Row(
           children: <Widget>[
-            Column(
+            Expanded(
+                child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
                   title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.text,
                     fontSize: 18,
@@ -1012,6 +1051,12 @@ class _SectionHeader extends StatelessWidget {
                     letterSpacing: -0.2,
                   ),
                 ),
+                if (subtitle != null)
+                  Text(subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 12)),
                 const SizedBox(height: 6),
                 Container(
                   width: 64,
@@ -1022,8 +1067,8 @@ class _SectionHeader extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-            const Spacer(),
+            )),
+            const SizedBox(width: 12),
             if (actionLabel != null)
               Material(
                 color: Colors.white.withOpacity(0.08),

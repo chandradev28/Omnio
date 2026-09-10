@@ -1052,6 +1052,7 @@ class AddonCatalog {
     required this.name,
     this.extraNames = const <String>[],
     this.requiredExtraNames = const <String>[],
+    this.extraOptions = const <String, List<String>>{},
   });
 
   final String type;
@@ -1059,13 +1060,17 @@ class AddonCatalog {
   final String name;
   final List<String> extraNames;
   final List<String> requiredExtraNames;
+  final Map<String, List<String>> extraOptions;
 
   bool get supportsSearch => extraNames.contains('search');
   bool get hasRequiredExtras => requiredExtraNames.isNotEmpty;
+  bool canRequest({bool search = false}) => requiredExtraNames.every((name) =>
+      name == 'search' ? search : (extraOptions[name]?.isNotEmpty ?? false));
 
   factory AddonCatalog.fromJson(Map<String, dynamic> json) {
     final Set<String> extraNames = <String>{};
     final Set<String> requiredExtraNames = <String>{};
+    final Map<String, List<String>> extraOptions = {};
     final dynamic rawExtra = json['extra'];
     if (rawExtra is List<dynamic>) {
       for (final dynamic value in rawExtra) {
@@ -1073,6 +1078,9 @@ class AddonCatalog {
           extraNames.add(value);
         } else if (value is Map<String, dynamic> && value['name'] is String) {
           final String name = value['name'] as String;
+          extraOptions[name] = (value['options'] as List? ?? [])
+              .map((option) => option.toString())
+              .toList();
           extraNames.add(name);
           if (value['isRequired'] == true) {
             requiredExtraNames.add(name);
@@ -1081,6 +1089,8 @@ class AddonCatalog {
       }
     }
     final dynamic rawSupported = json['extraSupported'];
+    requiredExtraNames
+        .addAll((json['extraRequired'] as List? ?? []).whereType<String>());
     if (rawSupported is List<dynamic>) {
       extraNames.addAll(
         rawSupported.whereType<String>(),
@@ -1090,9 +1100,10 @@ class AddonCatalog {
     return AddonCatalog(
       type: (json['type'] as String?) ?? '',
       id: (json['id'] as String?) ?? '',
-      name: (json['name'] as String?) ?? '',
+      name: _readString(json['name']) ?? _readString(json['id']) ?? 'Catalog',
       extraNames: extraNames.toList(growable: false),
       requiredExtraNames: requiredExtraNames.toList(growable: false),
+      extraOptions: extraOptions,
     );
   }
 
@@ -1104,10 +1115,13 @@ class AddonCatalog {
       'extra': extraNames
           .map((String name) => <String, dynamic>{
                 'name': name,
+                if (extraOptions[name]?.isNotEmpty ?? false)
+                  'options': extraOptions[name],
                 if (requiredExtraNames.contains(name)) 'isRequired': true,
               })
           .toList(growable: false),
       'extraSupported': extraNames,
+      'extraRequired': requiredExtraNames,
     };
   }
 }

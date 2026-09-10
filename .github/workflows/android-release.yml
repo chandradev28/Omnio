@@ -119,6 +119,7 @@ jobs:
             gh release create "$TAG_NAME" \
               "flutter_app/omnio-$VERSION_NAME.apk" \
               --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
               --title "Omnio $VERSION_NAME" \
               --generate-notes
           fi

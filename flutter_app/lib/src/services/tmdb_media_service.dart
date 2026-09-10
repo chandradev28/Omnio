@@ -172,6 +172,11 @@ class TmdbMediaService implements MediaCatalogService {
     String mediaType,
   ) async {
     final String trimmed = externalId.trim();
+    final match = RegExp(r'^tmdb:(\d+)$').firstMatch(trimmed);
+    if (match != null) {
+      return getMediaDetail(int.parse(match.group(1)!), mediaType);
+    }
+    if (!RegExp(r'^tt\d+$').hasMatch(trimmed)) return null;
     if (trimmed.isEmpty) {
       return null;
     }

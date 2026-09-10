@@ -29,15 +29,23 @@ class CombinedSearchService implements SearchService {
     List<SearchResult> addonResults = const <SearchResult>[];
     Object? tmdbError;
 
-    try {
-      tmdbResults = await _tmdbService.searchMulti(trimmed);
-    } catch (error) {
-      tmdbError = error;
-    }
-
-    try {
-      addonResults = await _addonsService.searchCatalogs(trimmed);
-    } catch (_) {}
+    Object? addonError;
+    await Future.wait<void>([
+      (() async {
+        try {
+          tmdbResults = await _tmdbService.searchMulti(trimmed);
+        } catch (error) {
+          tmdbError = error;
+        }
+      })(),
+      (() async {
+        try {
+          addonResults = await _addonsService.searchCatalogs(trimmed);
+        } catch (error) {
+          addonError = error;
+        }
+      })(),
+    ]);
 
     final List<SearchResult> merged = <SearchResult>[];
     final Set<String> seen = <String>{};
@@ -51,7 +59,7 @@ class CombinedSearchService implements SearchService {
       }
     }
 
-    if (merged.isEmpty && tmdbError != null) {
+    if (merged.isEmpty && tmdbError != null && addonError != null) {
       throw SearchRequestException(
         'Search services could not be reached. Verify the TMDB key in '
         'Settings > Integrations > TMDB Enrichment, and enable VPN/WARP if '
@@ -60,13 +68,13 @@ class CombinedSearchService implements SearchService {
       );
     }
 
-    return merged.take(60).toList(growable: false);
+    return merged;
   }
 
   String _identity(SearchResult item) {
     final String external = (item.externalId ?? '').trim().toLowerCase();
     if (external.isNotEmpty) {
-      return '${item.mediaType}:$external';
+      return '${item.sourceId ?? item.sourceName}:${item.mediaType}:$external';
     }
     if (item.id > 0) {
       return '${item.mediaType}:tmdb:${item.id}';

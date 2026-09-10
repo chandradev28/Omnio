@@ -2,11 +2,18 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/search_result.dart';
 import '../models/torbox_models.dart';
 import 'local_json_store.dart';
 
 class StremioAddonsService {
+  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
+  final ValueNotifier<List<AddonCatalogRow>> catalogRows =
+      ValueNotifier<List<AddonCatalogRow>>(<AddonCatalogRow>[]);
+  final Map<String, String> catalogErrors = <String, String>{};
+  int _catalogLoadVersion = 0;
   StremioAddonsService({
     LocalJsonStore? store,
   }) : _store =
@@ -32,13 +39,16 @@ class StremioAddonsService {
       }
 
       final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
-      return decoded
-          .map(
-            (dynamic item) => AddonManifest.fromJson(
-              item as Map<String, dynamic>,
-            ),
-          )
-          .toList(growable: false);
+      final List<AddonManifest> installed = [];
+      for (final item in decoded.whereType<Map<String, dynamic>>()) {
+        try {
+          installed.add(AddonManifest.fromJson(item));
+        } catch (_) {
+          developer.log('Skipping invalid saved addon',
+              name: 'StremioAddonsService');
+        }
+      }
+      return installed;
     } catch (_) {
       return const <AddonManifest>[];
     }
@@ -62,11 +72,21 @@ class StremioAddonsService {
     final Uri manifestUri = _normalizeManifestUri(manifestUrl);
     final Map<String, dynamic> payload = await _fetchJson(manifestUri);
 
+    final List<AddonManifest> installed = await getInstalledAddons();
+    final AddonManifest? existing = installed
+        .where((item) => item.originalUrl == manifestUri.toString())
+        .firstOrNull;
+    final String manifestId =
+        payload['id']?.toString() ?? _makeAddonId(manifestUri.toString());
+    final String instanceId = existing?.id ??
+        (installed.any((item) => item.id == manifestId)
+            ? '$manifestId:${_makeAddonId(manifestUri.toString())}'
+            : manifestId);
     final AddonManifest addon = AddonManifest.fromJson(
       <String, dynamic>{
         ...payload,
-        'id':
-            (payload['id'] as String?) ?? _makeAddonId(manifestUri.toString()),
+        'id': instanceId,
+        'enabled': existing?.enabled ?? true,
         'url': _stripManifestPath(manifestUri)
             .toString()
             .replaceAll(RegExp(r'/$'), ''),
@@ -74,7 +94,6 @@ class StremioAddonsService {
       },
     );
 
-    final List<AddonManifest> installed = await getInstalledAddons();
     final Map<String, AddonManifest> byId = <String, AddonManifest>{
       for (final AddonManifest item in installed) item.id: item,
     };
@@ -148,13 +167,24 @@ class StremioAddonsService {
     final Map<String, dynamic> payload = await _fetchJson(catalogUri);
     final List<dynamic> metas =
         payload['metas'] as List<dynamic>? ?? const <dynamic>[];
-    return metas
-        .map(
-          (dynamic item) =>
-              AddonCatalogItem.fromJson(item as Map<String, dynamic>),
-        )
-        .take(20)
-        .toList(growable: false);
+    final List<AddonCatalogItem> items = <AddonCatalogItem>[];
+    for (final Map<String, dynamic> item
+        in metas.whereType<Map<String, dynamic>>()) {
+      try {
+        final parsed = AddonCatalogItem.fromJson(<String, dynamic>{
+          ...item,
+          'id': item['id']?.toString(),
+          'name': item['name']?.toString() ?? item['title']?.toString(),
+          'type': item['type'] ?? catalog.type,
+          'poster': resolveAddonUrl(addon, item['poster']?.toString()),
+          'background': resolveAddonUrl(addon, item['background']?.toString()),
+        });
+        if (parsed.id.isNotEmpty && parsed.name.isNotEmpty) items.add(parsed);
+      } catch (_) {
+        // A malformed preview must not discard the other titles in its shelf.
+      }
+    }
+    return items;
   }
 
   /// Searches catalog resources that advertise the standard Stremio `search`
@@ -171,83 +201,92 @@ class StremioAddonsService {
     final Set<String> seen = <String>{};
     Object? lastError;
     bool attempted = false;
+    final List<Future<void> Function()> searches = [];
 
     for (final AddonManifest addon in addons) {
       for (final AddonCatalog catalog in addon.catalogs) {
-        if (catalog.type != 'movie' && catalog.type != 'series') {
-          continue;
-        }
         if (!catalog.supportsSearch && catalog.id != 'top') {
           continue;
         }
+        if (!catalog.canRequest(search: true)) continue;
 
         attempted = true;
-        try {
-          final List<AddonCatalogItem> items = await fetchCatalog(
-            addon,
-            catalog,
-            search: trimmed,
-          );
-          for (final AddonCatalogItem item in items) {
-            final String externalId = item.id.trim();
-            final String title = item.name.trim();
-            if (externalId.isEmpty || title.isEmpty) {
-              continue;
-            }
-
-            final String mediaType = item.mediaType == 'tv' ? 'tv' : 'movie';
-            final String dedupeKey = '$mediaType:$externalId';
-            if (!seen.add(dedupeKey)) {
-              continue;
-            }
-
-            results.add(
-              SearchResult(
-                id: 0,
-                mediaType: mediaType,
-                posterPath: resolveAddonUrl(addon, item.poster),
-                backdropPath: resolveAddonUrl(addon, item.background),
-                overview: item.description ?? '',
-                voteAverage: 0,
-                voteCount: 0,
-                popularity: 0,
-                genreIds: const <int>[],
-                originalLanguage: 'en',
-                adult: false,
-                title: title,
-                releaseDate: item.releaseInfo,
-                externalId: externalId,
-                sourceName: addon.name,
-              ),
+        searches.add(() async {
+          try {
+            final List<AddonCatalogItem> items = await fetchCatalog(
+              addon,
+              catalog,
+              search: trimmed,
             );
+            for (final AddonCatalogItem item in items) {
+              final String externalId = item.id.trim();
+              final String title = item.name.trim();
+              if (externalId.isEmpty || title.isEmpty) {
+                continue;
+              }
+
+              final String mediaType = item.mediaType;
+              final String dedupeKey = '${addon.id}:$mediaType:$externalId';
+              if (!seen.add(dedupeKey)) {
+                continue;
+              }
+
+              results.add(
+                SearchResult(
+                  id: 0,
+                  mediaType: mediaType,
+                  posterPath: resolveAddonUrl(addon, item.poster),
+                  backdropPath: resolveAddonUrl(addon, item.background),
+                  overview: item.description ?? '',
+                  voteAverage: 0,
+                  voteCount: 0,
+                  popularity: 0,
+                  genreIds: const <int>[],
+                  originalLanguage: 'en',
+                  adult: false,
+                  title: title,
+                  releaseDate: item.releaseInfo,
+                  externalId: externalId,
+                  sourceName: addon.name,
+                  sourceId: addon.id,
+                ),
+              );
+            }
+          } catch (error) {
+            lastError = error;
           }
-        } catch (error) {
-          lastError = error;
-        }
+        });
       }
     }
 
-    if (results.isEmpty && attempted && lastError != null) {
-      throw lastError;
+    for (int start = 0; start < searches.length; start += 4) {
+      await Future.wait(searches.skip(start).take(4).map((search) => search()));
     }
-    return results.take(40).toList(growable: false);
+
+    if (results.isEmpty && attempted && lastError != null) {
+      throw lastError!;
+    }
+    return results;
   }
 
   String resolveAddonUrl(AddonManifest addon, String? raw) {
     if (raw == null || raw.isEmpty) return '';
+    if (raw.startsWith('//')) return 'https:$raw';
+    if (raw.startsWith('data:')) return raw;
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    return Uri.parse(addon.url).resolve(raw).toString();
+    return Uri.parse('${addon.url.replaceAll(RegExp(r'/$'), '')}/')
+        .resolve(raw)
+        .toString();
   }
 
   Future<List<AddonCatalogRow>> fetchAllCatalogRows() async {
+    final version = ++_catalogLoadVersion;
+    catalogErrors.clear();
     final List<AddonManifest> addons = await getEnabledAddons();
     final List<_CatalogRequest> requests = <_CatalogRequest>[];
     for (final AddonManifest addon in addons) {
       for (final AddonCatalog catalog in addon.catalogs) {
-        if (catalog.type != 'movie' && catalog.type != 'series') {
-          continue;
-        }
-        if (catalog.hasRequiredExtras ||
+        if (!catalog.canRequest() ||
             catalog.id == 'last-videos' ||
             catalog.id == 'calendar-videos') {
           continue;
@@ -256,20 +295,23 @@ class StremioAddonsService {
       }
     }
 
-    final List<AddonCatalogRow> rows = <AddonCatalogRow>[];
+    final slots = List<AddonCatalogRow?>.filled(requests.length, null);
+    List<AddonCatalogRow> currentRows() =>
+        slots.whereType<AddonCatalogRow>().toList();
+    if (version == _catalogLoadVersion) catalogRows.value = [];
     for (int start = 0; start < requests.length; start += 4) {
       final List<_CatalogRequest> batch =
           requests.skip(start).take(4).toList(growable: false);
-      final List<AddonCatalogRow?> loaded = await Future.wait(
-        batch.map(_fetchCatalogRow),
-      );
-      for (final AddonCatalogRow? row in loaded) {
-        if (row != null && row.items.isNotEmpty) {
-          rows.add(row);
+      await Future.wait(batch.asMap().entries.map((entry) async {
+        final row = await _fetchCatalogRow(entry.value);
+        if (row != null && row.items.isNotEmpty) slots[start + entry.key] = row;
+        if (version == _catalogLoadVersion) {
+          catalogRows.value = List<AddonCatalogRow>.unmodifiable(currentRows());
         }
-      }
+      }));
+      if (version != _catalogLoadVersion) return currentRows();
     }
-    return rows;
+    return currentRows();
   }
 
   Future<AddonCatalogRow?> _fetchCatalogRow(_CatalogRequest request) async {
@@ -291,6 +333,8 @@ class StremioAddonsService {
       _catalogRowCache[cacheKey] = row;
       return row;
     } catch (error, stackTrace) {
+      catalogErrors['${request.addon.name} / ${request.catalog.name}'] =
+          'Could not load this catalog. Check its configuration or retry.';
       developer.log(
         'Catalog request failed for ${request.addon.name} / '
         '${request.catalog.type}:${request.catalog.id}',
@@ -511,6 +555,9 @@ class StremioAddonsService {
         addons.map((AddonManifest addon) => addon.toJson()).toList(),
       ),
     );
+    _metadataCache.clear();
+    _catalogRowCache.clear();
+    changes.value++;
   }
 
   Future<Map<String, dynamic>> _fetchJson(Uri uri) async {
@@ -606,23 +653,34 @@ class StremioAddonsService {
   }) {
     final Uri originalUri = Uri.parse(addon.originalUrl);
     final Uri baseUri = Uri.parse(addon.url);
-    final StringBuffer path = StringBuffer(
-      '${baseUri.path}/catalog/${catalog.type}/${catalog.id}'
-          .replaceAll('//', '/'),
-    );
+    final List<String> segments = <String>[
+      ...baseUri.pathSegments.where((segment) => segment.isNotEmpty),
+      'catalog',
+      catalog.type,
+      catalog.id,
+    ];
+    final List<String> extras = <String>[];
+    for (final name in catalog.requiredExtraNames) {
+      if (name == 'search' || name == 'skip') continue;
+      final options = catalog.extraOptions[name];
+      if (options != null && options.isNotEmpty) {
+        extras.add(
+            '${Uri.encodeComponent(name)}=${Uri.encodeComponent(options.first)}');
+      }
+    }
     final String trimmedSearch = (search ?? '').trim();
     if (trimmedSearch.isNotEmpty) {
-      path.write('/search=${Uri.encodeComponent(trimmedSearch)}');
+      extras.add('search=${Uri.encodeComponent(trimmedSearch)}');
     }
     if (skip != null && skip > 0) {
-      path.write('/skip=$skip');
+      extras.add('skip=$skip');
     }
-    path.write('.json');
-    return baseUri.replace(
-      path: path.toString(),
-      queryParameters: originalUri.queryParameters.isEmpty
-          ? null
-          : originalUri.queryParameters,
+    final Uri resource =
+        baseUri.replace(pathSegments: segments, query: '', fragment: '');
+    final String path = resource.toString().replaceAll(RegExp(r'[?#]+$'), '');
+    final String suffix = extras.isEmpty ? '' : '/${extras.join('&')}';
+    return Uri.parse('$path$suffix.json').replace(
+      query: originalUri.hasQuery ? originalUri.query : null,
     );
   }
 
