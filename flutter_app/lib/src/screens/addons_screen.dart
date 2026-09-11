@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/torbox_models.dart';
 import '../services/stremio_addons_service.dart';
 import '../theme/app_colors.dart';
+import 'cloudstream_screen.dart';
 
 class AddonsScreen extends StatefulWidget {
   AddonsScreen({
@@ -131,6 +132,16 @@ class _AddonsScreenState extends State<AddonsScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
             children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.cloud_outlined),
+                title: const Text('Cloudstream repositories'),
+                subtitle:
+                    const Text('Manage plugins for playable sources only'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => CloudstreamScreen())),
+              ),
+              const SizedBox(height: 18),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(

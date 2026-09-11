@@ -1381,6 +1381,8 @@ class StreamSource {
     this.magnetUri,
     this.sourceTrackers = const <String>[],
     this.streamHeaders = const <String, String>{},
+    this.subtitles = const <Map<String, String>>[],
+    this.streamFormat,
   });
 
   final String id;
@@ -1401,6 +1403,8 @@ class StreamSource {
   final String? magnetUri;
   final List<String> sourceTrackers;
   final Map<String, String> streamHeaders;
+  final List<Map<String, String>> subtitles;
+  final String? streamFormat;
 
   bool get isDirectUrl => directUrl != null && directUrl!.isNotEmpty;
   bool get isTorBoxCached => (cacheProvider ?? '').contains('TB+');
@@ -1423,6 +1427,11 @@ class StreamSource {
       addonId: json['addonId'] as String?,
       infoHash: json['infoHash'] as String?,
       directUrl: json['directUrl'] as String?,
+      streamFormat: json['streamFormat'] as String?,
+      subtitles: (json['subtitles'] as List? ?? [])
+          .whereType<Map>()
+          .map((s) => s.map((k, v) => MapEntry(k.toString(), v.toString())))
+          .toList(),
       fileIndex: (json['fileIndex'] as num?)?.toInt(),
       fileName: json['fileName'] as String?,
       videoSizeBytes: (json['videoSizeBytes'] as num?)?.toInt(),
@@ -1431,14 +1440,8 @@ class StreamSource {
           ((json['sourceTrackers'] as List<dynamic>?) ?? const <dynamic>[])
               .map((dynamic item) => item.toString())
               .toList(growable: false),
-      streamHeaders: ((json['streamHeaders'] as Map<String, dynamic>?) ??
-              const <String, dynamic>{})
-          .map(
-        (String key, dynamic value) => MapEntry<String, String>(
-          key,
-          value.toString(),
-        ),
-      ),
+      streamHeaders: (json['streamHeaders'] is Map ? json['streamHeaders'] as Map : const {})
+          .map((key, value) => MapEntry<String, String>(key.toString(), value.toString())),
     );
   }
 
@@ -1462,6 +1465,8 @@ class StreamSource {
       'magnetUri': magnetUri,
       'sourceTrackers': sourceTrackers,
       'streamHeaders': streamHeaders,
+      'subtitles': subtitles,
+      'streamFormat': streamFormat,
     };
   }
 }

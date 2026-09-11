@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'src/app.dart';
 
@@ -20,6 +22,10 @@ void main() {
   runZonedGuarded(
     () {
       WidgetsFlutterBinding.ensureInitialized();
+      LicenseRegistry.addLicense(() async* {
+        yield LicenseEntryWithLineBreaks(['Omnio', 'Cloudstream runtime'],
+            await rootBundle.loadString('assets/licenses/GPL-3.0.txt'));
+      });
       FlutterError.onError = FlutterError.presentError;
       PlatformDispatcher.instance.onError =
           (Object error, StackTrace stackTrace) {

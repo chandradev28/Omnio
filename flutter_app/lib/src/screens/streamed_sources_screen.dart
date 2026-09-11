@@ -9,6 +9,7 @@ import '../services/stream_catalog_service.dart';
 import '../services/stremio_addons_service.dart';
 import '../services/tmdb_image.dart';
 import '../services/torbox_api_service.dart';
+import '../services/cloudstream_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/optimized_network_image.dart';
 import '../widgets/title_logo.dart';
@@ -32,12 +33,14 @@ class OmnioSourcesScreen extends StatefulWidget {
     RealDebridApiService? realDebridApiService,
     AppSettingsRepository? settingsRepository,
     StreamBadgeService? streamBadgeService,
+    CloudstreamService? cloudstreamService,
   })  : streamCatalogService = streamCatalogService ?? StreamCatalogService(),
         addonsService = addonsService ?? StremioAddonsService(),
         torBoxApiService = torBoxApiService ?? TorBoxApiService(),
         realDebridApiService = realDebridApiService ?? RealDebridApiService(),
         settingsRepository = settingsRepository ?? AppSettingsRepository(),
-        streamBadgeService = streamBadgeService ?? const StreamBadgeService();
+        streamBadgeService = streamBadgeService ?? const StreamBadgeService(),
+        cloudstreamService = cloudstreamService ?? CloudstreamService();
 
   final String title;
   final String? logoPath;
@@ -54,6 +57,7 @@ class OmnioSourcesScreen extends StatefulWidget {
   final RealDebridApiService realDebridApiService;
   final AppSettingsRepository settingsRepository;
   final StreamBadgeService streamBadgeService;
+  final CloudstreamService cloudstreamService;
 
   @override
   State<OmnioSourcesScreen> createState() => _OmnioSourcesScreenState();
@@ -70,6 +74,9 @@ class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
   bool _cachedOnly = false;
   bool _showPinnedTitle = false;
   List<StreamBadge> _badges = const <StreamBadge>[];
+  int _searchVersion = 0;
+  List<Map<String, dynamic>> _cloudstreamChoices = [];
+  bool _resolvingChoice = false;
 
   bool get _isEpisodeContext =>
       widget.mediaType == 'tv' &&
@@ -226,26 +233,27 @@ class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
   }
 
   Future<void> _search() async {
+    final version = ++_searchVersion;
     setState(() {
       _loading = true;
       _message = null;
+      _results = [];
+      _cloudstreamChoices = [];
+      _selectedSource = null;
+      _cachedOnly = false;
     });
+    final errors = <String>[];
+    void publish(List<StreamSource> streams) {
+      if (!mounted || version != _searchVersion) return;
+      setState(() {
+        _results = {
+          for (final source in [..._results, ...streams]) source.id: source
+        }.values.toList();
+      });
+    }
 
-    final List<StreamSource> merged = <StreamSource>[];
-    final Set<String> seen = <String>{};
-
-    try {
-      final List<AddonManifest> addons =
-          await widget.addonsService.getInstalledAddons();
-
-      final bool hasEnabledStreamAddon = addons.any(
-        (AddonManifest addon) => addon.enabled && addon.hasStreamResource,
-      );
-      if (!hasEnabledStreamAddon) {
-        _message = 'Install and enable a stream addon to search Omnio.';
-      }
-
-      if (hasEnabledStreamAddon) {
+    Future<void> addons() async {
+      try {
         final String streamId = widget.mediaType == 'tv'
             ? '${widget.imdbId}:${widget.seasonNumber ?? 1}:${widget.episodeNumber ?? 1}'
             : widget.imdbId;
@@ -258,43 +266,108 @@ class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
             await widget.streamCatalogService.annotateCacheStatus(
           addonSearch.streams,
         );
-        for (final StreamSource item in addonStreams) {
-          if (seen.add(item.id)) {
-            merged.add(item);
-          }
-        }
+        publish(addonStreams);
+        errors.addAll(addonSearch.diagnostics.sourceErrors.keys
+            .map((name) => '$name did not respond'));
+      } catch (_) {
+        errors.add('Stremio source lookup failed');
       }
-
-      if (merged.isEmpty) {
-        _message ??= 'No addon streams found for this title.';
-      }
-
-      merged.sort((StreamSource a, StreamSource b) {
-        if (a.isCached == b.isCached) {
-          return a.sourceDisplayName.compareTo(b.sourceDisplayName);
-        }
-        return a.isCached ? -1 : 1;
-      });
-    } catch (error) {
-      _message = error.toString();
     }
 
-    if (!mounted) {
-      return;
+    Future<void> cloudstream() async {
+      try {
+        final plugins = await widget.cloudstreamService.enabledPlugins();
+        for (var start = 0; start < plugins.length; start += 3) {
+          await Future.wait(plugins.skip(start).take(3).map((plugin) async {
+            try {
+              final batch = await widget.cloudstreamService
+                  .sources({..._csRequest, 'key': plugin['key']});
+              publish(_csStreams(batch));
+              if (!mounted || version != _searchVersion) return;
+              setState(() => _cloudstreamChoices.addAll(
+                  (batch['choices'] as List? ?? [])
+                      .map((item) => Map<String, dynamic>.from(item))));
+              errors.addAll(
+                  (batch['errors'] as List? ?? []).map((e) => e.toString()));
+            } catch (_) {
+              errors.add(
+                  'CS / ${plugin['name']} could not run. Check compatibility or update the plugin.');
+            }
+          }));
+          if (!mounted || version != _searchVersion) return;
+        }
+      } catch (_) {
+        errors.add('Cloudstream could not load installed plugins');
+      }
     }
 
+    await Future.wait([addons(), cloudstream()]);
+    if (!mounted || version != _searchVersion) return;
     setState(() {
-      _results = merged;
-      _badges = _settings.streamBadgesEnabled
-          ? widget.streamBadgeService.parseBadges(_settings.streamBadgesJson)
-          : const <StreamBadge>[];
-      _selectedSource = null;
-      _cachedOnly = false;
       _loading = false;
-      _message = merged.isEmpty
-          ? (_message ?? 'No sources came back for this title.')
-          : _message;
+      _message = errors.isNotEmpty
+          ? errors.join('\n')
+          : (_results.isEmpty && _cloudstreamChoices.isEmpty
+              ? 'No sources found. Enable a Stremio addon or Cloudstream plugin in Content & Discovery.'
+              : null);
     });
+  }
+
+  Map<String, dynamic> get _csRequest => {
+        'title': widget.title,
+        'type': widget.mediaType,
+        'imdbId': widget.imdbId,
+        'tmdbId': widget.tmdbId,
+        'season': widget.seasonNumber,
+        'episode': widget.episodeNumber
+      };
+
+  List<StreamSource> _csStreams(Map<String, dynamic> batch) =>
+      (batch['streams'] as List? ?? [])
+          .map((item) => StreamSource.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+
+  Future<void> _chooseCloudstream(Map<String, dynamic> choice) async {
+    final selected = await showDialog<Map>(
+        context: context,
+        builder: (context) => SimpleDialog(
+              title: Text('Choose title in ${choice['provider']}'),
+              children: [
+                for (final item in choice['items'] as List)
+                  SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, item),
+                      child: Text(
+                          '${item['name']} (${item['type'] ?? 'Unknown type'})'))
+              ],
+            ));
+    if (selected == null || !mounted) return;
+    final version = _searchVersion;
+    setState(() => _resolvingChoice = true);
+    try {
+      final batch = await widget.cloudstreamService.sources({
+        ..._csRequest,
+        'key': choice['key'],
+        'api': choice['api'],
+        'url': selected['url']
+      });
+      if (!mounted || version != _searchVersion) return;
+      final streams = _csStreams(batch);
+      setState(() {
+        _results = {
+          for (final s in [..._results, ...streams]) s.id: s
+        }.values.toList();
+        _message = streams.isEmpty
+            ? 'No playable links for that selection. ${(batch['errors'] as List? ?? []).join(', ')}'
+            : null;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message =
+            'Cloudstream lookup failed. Retry or update this plugin.');
+      }
+    } finally {
+      if (mounted) setState(() => _resolvingChoice = false);
+    }
   }
 
   Future<void> _playSource(StreamSource source) async {
@@ -354,6 +427,8 @@ class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
           initialVideoUrl: source.directUrl,
           provider: source.sourceDisplayName,
           streamHeaders: source.streamHeaders,
+          sourceSubtitles: source.subtitles,
+          streamFormat: source.streamFormat,
         ),
       ),
     );
@@ -589,7 +664,9 @@ class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
                   ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(18, 12, 18, 34),
-                  sliver: _loading
+                  sliver: _loading &&
+                          _results.isEmpty &&
+                          _cloudstreamChoices.isEmpty
                       ? const SliverToBoxAdapter(
                           child: Padding(
                             padding: EdgeInsets.symmetric(vertical: 56),
@@ -622,6 +699,25 @@ class _OmnioSourcesScreenState extends State<OmnioSourcesScreen> {
                                   },
                                 ),
                 ),
+                if (_loading || _resolvingChoice)
+                  const SliverToBoxAdapter(child: LinearProgressIndicator()),
+                if (_message != null && _results.isNotEmpty)
+                  SliverToBoxAdapter(
+                      child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Text(_message!))),
+                for (final choice in _cloudstreamChoices)
+                  SliverToBoxAdapter(
+                      child: ListTile(
+                    leading: const Icon(Icons.cloud_outlined),
+                    title: Text('CS / ${choice['provider']}'),
+                    subtitle: const Text(
+                        'Choose matching title to load playable sources'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _resolvingChoice
+                        ? null
+                        : () => _chooseCloudstream(choice),
+                  )),
               ],
             ),
           ),

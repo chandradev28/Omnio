@@ -12,11 +12,13 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
+    private var cloudstreamBridge: CloudstreamBridge? = null
     private val channelName = "streamed/external_player"
     private val updaterChannelName = "streamed/app_updater"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        cloudstreamBridge = CloudstreamBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             channelName
@@ -52,6 +54,12 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        cloudstreamBridge?.close()
+        cloudstreamBridge = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun openVideoUrl(url: String, title: String): Boolean {

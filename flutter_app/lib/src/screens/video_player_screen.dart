@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,6 +37,8 @@ class VideoPlayerScreen extends StatefulWidget {
     this.startPositionMs,
     this.provider,
     this.streamHeaders = const <String, String>{},
+    this.sourceSubtitles = const <Map<String, String>>[],
+    this.streamFormat,
     AppSettingsRepository? settingsRepository,
     TorBoxApiService? torBoxApiService,
     ContinueWatchingRepository? watchHistoryRepository,
@@ -62,6 +65,8 @@ class VideoPlayerScreen extends StatefulWidget {
   final int? startPositionMs;
   final String? provider;
   final Map<String, String> streamHeaders;
+  final List<Map<String, String>> sourceSubtitles;
+  final String? streamFormat;
   final AppSettingsRepository settingsRepository;
   final TorBoxApiService torBoxApiService;
   final ContinueWatchingRepository watchHistoryRepository;
@@ -388,6 +393,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       nextController = VideoPlayerController.networkUrl(
         Uri.parse(url),
         httpHeaders: widget.streamHeaders,
+        formatHint: widget.streamFormat == 'M3U8'
+            ? VideoFormat.hls
+            : widget.streamFormat == 'DASH'
+                ? VideoFormat.dash
+                : null,
       );
       await nextController.initialize();
       await nextController.setLooping(false);
@@ -1099,6 +1109,52 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     );
   }
 
+  Future<void> _loadSourceSubtitle(Map<String, String> subtitle) async {
+    final controller = _controller;
+    if (controller == null) return;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final uri = Uri.parse(subtitle['url']!);
+      if (!['https', 'http'].contains(uri.scheme)) {
+        throw const FormatException('Unsupported subtitle URL');
+      }
+      final request = await client.getUrl(uri);
+      final response =
+          await request.close().timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) {
+        throw const FormatException('Subtitle download failed');
+      }
+      final bytes = <int>[];
+      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
+        bytes.addAll(chunk);
+        if (bytes.length > 4 * 1024 * 1024) {
+          throw const FormatException('Subtitle file too large');
+        }
+      }
+      final raw = utf8.decode(bytes).replaceFirst('\uFEFF', '').trimLeft();
+      final ClosedCaptionFile captions;
+      if (raw.startsWith('WEBVTT')) {
+        captions = WebVTTCaptionFile(raw);
+      } else if (RegExp(r'\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->').hasMatch(raw)) {
+        captions = SubRipCaptionFile(raw);
+      } else {
+        throw const FormatException(
+            'This subtitle format is unsupported. SRT and VTT are supported.');
+      }
+      if (!mounted || controller != _controller) return;
+      await controller.setClosedCaptionFile(Future.value(captions));
+      setState(() {
+        _externalSubtitleName = subtitle['name'];
+        _subtitlesVisible = true;
+      });
+    } catch (error) {
+      if (mounted) _showFeatureMessage('Could not load subtitle: $error');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   void _showSubtitleSheet() {
     final List<dynamic> visibleTracks = _visibleSubtitleTracks();
     showModalBottomSheet<void>(
@@ -1107,6 +1163,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       showDragHandle: true,
       builder: (BuildContext context) {
         return _SubtitleSheet(
+          sourceSubtitles: widget.sourceSubtitles,
+          onSourceSubtitle: (subtitle) {
+            Navigator.of(context).pop();
+            _loadSourceSubtitle(subtitle);
+          },
           tracks: visibleTracks,
           activeTracks: _activeSubtitleTracks,
           externalSubtitleName: _externalSubtitleName,
@@ -2318,6 +2379,8 @@ class _TrackSheet extends StatelessWidget {
 
 class _SubtitleSheet extends StatelessWidget {
   const _SubtitleSheet({
+    this.sourceSubtitles = const [],
+    this.onSourceSubtitle,
     required this.tracks,
     required this.activeTracks,
     required this.externalSubtitleName,
@@ -2329,6 +2392,8 @@ class _SubtitleSheet extends StatelessWidget {
   });
 
   final List<dynamic> tracks;
+  final List<Map<String, String>> sourceSubtitles;
+  final ValueChanged<Map<String, String>>? onSourceSubtitle;
   final List<int> activeTracks;
   final String? externalSubtitleName;
   final bool subtitlesVisible;
@@ -2380,6 +2445,11 @@ class _SubtitleSheet extends StatelessWidget {
             ),
             onTap: onPickExternal,
           ),
+          for (final subtitle in sourceSubtitles)
+            ListTile(
+                title: Text(subtitle['name'] ?? 'Cloudstream subtitle'),
+                subtitle: const Text('Cloudstream'),
+                onTap: () => onSourceSubtitle?.call(subtitle)),
           if (tracks.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 10),
