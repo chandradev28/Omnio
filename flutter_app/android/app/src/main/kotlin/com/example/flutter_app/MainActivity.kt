@@ -18,6 +18,13 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        flutterEngine
+            .platformViewsController
+            .registry
+            .registerViewFactory(
+                "omnio/native_player",
+                OmnioNativePlayerFactory(flutterEngine.dartExecutor.binaryMessenger),
+            )
         cloudstreamBridge = CloudstreamBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,

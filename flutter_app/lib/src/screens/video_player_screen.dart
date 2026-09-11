@@ -1,17 +1,17 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/torbox_models.dart';
 import '../models/watch_history_item.dart';
 import '../services/app_settings_repository.dart';
 import '../services/episode_parser.dart';
+import '../services/omnio_player_controller.dart';
 import '../services/torbox_api_service.dart';
 import '../services/watch_history_repository.dart';
 import '../theme/app_colors.dart';
@@ -79,7 +79,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   static const MethodChannel _externalPlayerChannel =
       MethodChannel('streamed/external_player');
 
-  VideoPlayerController? _controller;
+  OmnioPlayerController? _controller;
   List<TorBoxTorrentFile> _files = const <TorBoxTorrentFile>[];
   String? _resolvedUrl;
   int? _activeFileId;
@@ -372,9 +372,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       return;
     }
 
-    VideoPlayerController? nextController;
+    OmnioPlayerController? nextController;
     try {
-      final VideoPlayerController? previousController = _controller;
+      final OmnioPlayerController? previousController = _controller;
       setState(() {
         _controller = null;
         _loading = true;
@@ -388,31 +388,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
       _progressTimer?.cancel();
       previousController?.removeListener(_handleControllerTick);
-      await previousController?.dispose();
+      await previousController?.release();
+      previousController?.dispose();
 
-      nextController = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        httpHeaders: widget.streamHeaders,
-        formatHint: widget.streamFormat == 'M3U8'
-            ? VideoFormat.hls
-            : widget.streamFormat == 'DASH'
-                ? VideoFormat.dash
-                : null,
+      final int startPositionMs = await _initialStartPositionMs() ?? 0;
+      nextController = OmnioPlayerController(
+        url: url,
+        headers: widget.streamHeaders,
+        streamFormat: widget.streamFormat,
+        sourceSubtitles: widget.sourceSubtitles,
+        autoplay: _settings.playbackAutoPlay,
+        startPositionMs: startPositionMs,
       );
-      await nextController.initialize();
-      await nextController.setLooping(false);
-      await nextController.setPlaybackSpeed(_settings.playbackDefaultSpeed);
-
-      final int? startPositionMs = await _initialStartPositionMs();
-      if (startPositionMs != null && startPositionMs > 0) {
-        await nextController.seekTo(
-          Duration(milliseconds: startPositionMs),
-        );
-      }
-
-      if (_settings.playbackAutoPlay) {
-        await nextController.play();
-      }
 
       nextController.addListener(_handleControllerTick);
       _progressTimer = Timer.periodic(
@@ -421,32 +408,27 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       );
 
       if (!mounted) {
-        await nextController.dispose();
+        await nextController.release();
+        nextController.dispose();
         return;
       }
 
       setState(() {
         _controller = nextController;
-        _initialized = true;
-        _loading = false;
+        _initialized = false;
+        _loading = true;
         _showControls = true;
-        _duration = nextController!.value.duration;
-        _position = nextController.value.position;
+        _duration = Duration.zero;
+        _position = Duration.zero;
         _subtitlesVisible = _settings.playbackAddonSubtitleStartup != 'off';
       });
-      await _refreshMediaTracks();
-      _applyTrackPreferences();
-      unawaited(
-        Future<void>.delayed(
-          const Duration(milliseconds: 500),
-          () async {
-            await _refreshMediaTracks();
-            _applyTrackPreferences();
-          },
-        ),
-      );
+      unawaited(() async {
+        await nextController!.start();
+        await nextController.setPlaybackSpeed(_settings.playbackDefaultSpeed);
+      }());
     } catch (error) {
-      await nextController?.dispose();
+      await nextController?.release();
+      nextController?.dispose();
       if (!mounted) {
         return;
       }
@@ -488,16 +470,31 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   void _handleControllerTick() {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null || !mounted) {
       return;
     }
 
-    final VideoPlayerValue value = controller.value;
+    final OmnioPlayerValue value = controller.value;
+    final bool becameReady = value.isReady && !_initialized;
     setState(() {
       _position = value.position;
       _duration = value.duration;
+      if (becameReady) {
+        _initialized = true;
+        _loading = false;
+        _error = null;
+        _playbackIssue = null;
+      }
     });
+    if (becameReady) {
+      unawaited(() async {
+        await _refreshMediaTracks();
+        await _applyTrackPreferences();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _refreshMediaTracks();
+      }());
+    }
 
     if (value.hasError) {
       setState(() {
@@ -619,7 +616,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _togglePlayPause() async {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null) {
       return;
     }
@@ -636,7 +633,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _seekRelative(int seconds) async {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null || controller.value.duration <= Duration.zero) {
       return;
     }
@@ -652,7 +649,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _setPlaybackSpeed(double speed) async {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null) {
       return;
     }
@@ -794,25 +791,40 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _refreshMediaTracks() async {
-    if (_controller == null || !_initialized) {
+    final OmnioPlayerController? controller = _controller;
+    if (controller == null || !_initialized) {
       return;
     }
-    if (!mounted) {
+    final List<dynamic> tracks = await controller.tracks();
+    if (!mounted || controller != _controller) {
       return;
     }
     setState(() {
-      _audioTracks = const <dynamic>[];
-      _subtitleTracks = const <dynamic>[];
-      _activeAudioTracks = const <int>[];
-      _activeSubtitleTracks = const <int>[];
+      _audioTracks = tracks
+          .where((dynamic track) => _trackType(track) == 'audio')
+          .toList(growable: false);
+      _subtitleTracks = tracks
+          .where((dynamic track) => _trackType(track) == 'subtitle')
+          .toList(growable: false);
+      _activeAudioTracks = _audioTracks
+          .where((dynamic track) => _trackSelected(track))
+          .map(_trackIndex)
+          .toList(growable: false);
+      _activeSubtitleTracks = _subtitleTracks
+          .where((dynamic track) => _trackSelected(track))
+          .map(_trackIndex)
+          .toList(growable: false);
     });
   }
 
-  void _applyTrackPreferences() {
-    if (!mounted) {
+  Future<void> _applyTrackPreferences() async {
+    final OmnioPlayerController? controller = _controller;
+    if (!mounted || controller == null || !_initialized) {
       return;
     }
     if (_settings.playbackAddonSubtitleStartup == 'off') {
+      await controller.disableSubtitles();
+      if (!mounted || controller != _controller) return;
       setState(() {
         _subtitlesVisible = false;
       });
@@ -828,6 +840,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       _audioTracks,
       _preferredAudioCodes(),
     );
+
+    if (_settings.playbackAddonSubtitleStartup == 'preferred' &&
+        preferredSubtitleTracks.isNotEmpty) {
+      await controller.selectTrack(preferredSubtitleTracks.first);
+    }
+    if (preferredAudioTracks.isNotEmpty) {
+      await controller.selectTrack(preferredAudioTracks.first);
+    }
+    if (!mounted || controller != _controller) return;
 
     setState(() {
       if (_settings.playbackAddonSubtitleStartup == 'preferred') {
@@ -846,27 +867,30 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _selectAudioTrack(int trackIndex) async {
-    _showFeatureMessage(
-      'Embedded audio track switching needs the native player backend.',
-    );
+    final OmnioPlayerController? controller = _controller;
+    if (controller == null) return;
+    await controller.selectTrack(trackIndex);
+    await _refreshMediaTracks();
   }
 
   Future<void> _selectSubtitleTrack(int? trackIndex) async {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null) {
       return;
     }
     try {
       if (trackIndex == null) {
-        await controller.setClosedCaptionFile(null);
+        await controller.disableSubtitles();
         setState(() {
           _subtitlesVisible = false;
           _externalSubtitleName = null;
         });
       } else {
-        _showFeatureMessage(
-          'Embedded subtitles need the native player backend. Use external .srt or .vtt subtitles for now.',
-        );
+        await controller.selectTrack(trackIndex);
+        setState(() {
+          _subtitlesVisible = true;
+          _externalSubtitleName = null;
+        });
       }
       await _refreshMediaTracks();
     } catch (_) {
@@ -877,7 +901,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _pickExternalSubtitle() async {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null) {
       return;
     }
@@ -893,21 +917,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     }
 
     try {
-      final String lower = pickedFile!.name.toLowerCase();
-      if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
-        final String raw = await File(path).readAsString();
-        final ClosedCaptionFile captions = lower.endsWith('.vtt')
-            ? WebVTTCaptionFile(raw)
-            : SubRipCaptionFile(raw);
-        await controller.setClosedCaptionFile(Future<ClosedCaptionFile>.value(
-          captions,
-        ));
-      } else {
-        _showFeatureMessage(
-          'Only .srt and .vtt subtitles are supported by this player backend.',
-        );
-        return;
-      }
+      await controller.addSubtitle(path, name: pickedFile!.name);
       if (!mounted) {
         return;
       }
@@ -1110,48 +1120,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _loadSourceSubtitle(Map<String, String> subtitle) async {
-    final controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     if (controller == null) return;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
     try {
-      final uri = Uri.parse(subtitle['url']!);
-      if (!['https', 'http'].contains(uri.scheme)) {
-        throw const FormatException('Unsupported subtitle URL');
-      }
-      final request = await client.getUrl(uri);
-      final response =
-          await request.close().timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) {
-        throw const FormatException('Subtitle download failed');
-      }
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-        bytes.addAll(chunk);
-        if (bytes.length > 4 * 1024 * 1024) {
-          throw const FormatException('Subtitle file too large');
-        }
-      }
-      final raw = utf8.decode(bytes).replaceFirst('\uFEFF', '').trimLeft();
-      final ClosedCaptionFile captions;
-      if (raw.startsWith('WEBVTT')) {
-        captions = WebVTTCaptionFile(raw);
-      } else if (RegExp(r'\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->').hasMatch(raw)) {
-        captions = SubRipCaptionFile(raw);
-      } else {
-        throw const FormatException(
-            'This subtitle format is unsupported. SRT and VTT are supported.');
-      }
+      final String url = subtitle['url']?.trim() ?? '';
+      if (url.isEmpty) throw const FormatException('Subtitle URL is empty');
+      await controller.addSubtitle(url, name: subtitle['name']);
       if (!mounted || controller != _controller) return;
-      await controller.setClosedCaptionFile(Future.value(captions));
       setState(() {
         _externalSubtitleName = subtitle['name'];
         _subtitlesVisible = true;
       });
     } catch (error) {
       if (mounted) _showFeatureMessage('Could not load subtitle: $error');
-    } finally {
-      client.close(force: true);
     }
   }
 
@@ -1359,7 +1340,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final VideoPlayerController? controller = _controller;
+    final OmnioPlayerController? controller = _controller;
     final MediaQueryData mediaQuery = MediaQuery.of(context);
     final bool isLandscape = mediaQuery.orientation == Orientation.landscape;
     final bool isPlaying = controller?.value.isPlaying ?? false;
@@ -1448,7 +1429,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           child: isLandscape
               ? _PlayerStage(
                   height: double.infinity,
-                  controller: controller,
+                  playerSurface: controller?.surface,
                   initialized: _initialized,
                   loading: _loading,
                   issue: activeIssue,
@@ -1521,7 +1502,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                       _PlayerStage(
                         height:
                             (mediaQuery.size.height * 0.46).clamp(390.0, 520.0),
-                        controller: controller,
+                        playerSurface: controller?.surface,
                         initialized: _initialized,
                         loading: _loading,
                         issue: activeIssue,
@@ -1682,7 +1663,7 @@ String _speedLabel(double value) {
 class _PlayerStage extends StatelessWidget {
   const _PlayerStage({
     required this.height,
-    required this.controller,
+    required this.playerSurface,
     required this.initialized,
     required this.loading,
     required this.issue,
@@ -1731,7 +1712,7 @@ class _PlayerStage extends StatelessWidget {
   });
 
   final double height;
-  final VideoPlayerController? controller;
+  final Widget? playerSurface;
   final bool initialized;
   final bool loading;
   final _PlaybackIssue? issue;
@@ -1780,7 +1761,6 @@ class _PlayerStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final VideoPlayerController? activeController = controller;
     final TorBoxTorrentFile? file = activeFile;
     final bool looksHevc = file != null &&
         RegExp(
@@ -1798,31 +1778,7 @@ class _PlayerStage extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            if (initialized && activeController != null)
-              FittedBox(
-                fit: BoxFit.contain,
-                child: SizedBox(
-                  width: activeController.value.size.width,
-                  height: activeController.value.size.height,
-                  child: VideoPlayer(activeController),
-                ),
-              ),
-            if (initialized && activeController != null && subtitlesVisible)
-              ClosedCaption(
-                text: activeController.value.caption.text,
-                textStyle: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  height: 1.28,
-                  fontWeight: FontWeight.w700,
-                  shadows: <Shadow>[
-                    Shadow(
-                      color: Colors.black,
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-              ),
+            if (playerSurface != null) Positioned.fill(child: playerSurface!),
             if (loading)
               const Center(
                 child: CircularProgressIndicator(color: AppColors.text),
@@ -1842,218 +1798,252 @@ class _PlayerStage extends StatelessWidget {
                   ),
                 ),
               ),
-            if (showControls)
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: <Color>[
-                        Colors.black.withOpacity(0.74),
-                        Colors.black.withOpacity(0.18),
-                        Colors.black.withOpacity(0.88),
-                      ],
+            Positioned.fill(
+              child: AnimatedOpacity(
+                opacity: showControls ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                child: IgnorePointer(
+                  ignoring: !showControls,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: <Color>[
+                          Colors.black.withOpacity(0.74),
+                          Colors.black.withOpacity(0.18),
+                          Colors.black.withOpacity(0.88),
+                        ],
+                      ),
                     ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            if (showInlineCloseButton) ...<Widget>[
-                              _TapIconButton(
-                                icon: Icons.arrow_back_rounded,
-                                onTap: onClose,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              if (showInlineCloseButton) ...<Widget>[
+                                _TapIconButton(
+                                  icon: Icons.arrow_back_rounded,
+                                  onTap: onClose,
+                                ),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      displayTitle,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.18,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 6,
+                                      children: <Widget>[
+                                        _PlayerPill(
+                                          icon: isPlaying
+                                              ? Icons.pause_rounded
+                                              : Icons.play_arrow_rounded,
+                                          label:
+                                              isPlaying ? 'Playing' : 'Paused',
+                                        ),
+                                        if (isBuffering)
+                                          const _PlayerPill(
+                                            icon: Icons.sync_rounded,
+                                            label: 'Buffering',
+                                          ),
+                                        if (provider != null)
+                                          _PlayerPill(
+                                            icon: Icons.storage_outlined,
+                                            label: provider!,
+                                          ),
+                                        if (looksHevc)
+                                          const _PlayerPill(
+                                            icon: Icons.warning_amber_rounded,
+                                            label: 'HEVC/x265',
+                                          ),
+                                        if ((torrentHash ?? '').isNotEmpty)
+                                          _PlayerPill(
+                                            icon: Icons.tag_outlined,
+                                            label: torrentHash!.substring(
+                                              0,
+                                              torrentHash!.length > 8
+                                                  ? 8
+                                                  : torrentHash!.length,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
-                              const SizedBox(width: 10),
+                              _MiniIconButton(
+                                icon: landscapeLocked
+                                    ? Icons.screen_lock_rotation_rounded
+                                    : Icons.screen_rotation_alt_rounded,
+                                onTap: onOrientation,
+                              ),
                             ],
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          ),
+                          const Spacer(),
+                          if (initialized && playerSurface != null)
+                            Center(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: <Widget>[
-                                  Text(
-                                    displayTitle,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.18,
+                                  _OverlayControlButton(
+                                    icon: _skipBackIcon(skipSeconds),
+                                    onTap: onBack,
+                                  ),
+                                  const SizedBox(width: 18),
+                                  GestureDetector(
+                                    onTap: onPlayPause,
+                                    child: Container(
+                                      width: 66,
+                                      height: 66,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 160,
+                                        ),
+                                        transitionBuilder: (
+                                          Widget child,
+                                          Animation<double> animation,
+                                        ) {
+                                          return ScaleTransition(
+                                            scale: animation,
+                                            child: child,
+                                          );
+                                        },
+                                        child: Icon(
+                                          isPlaying
+                                              ? Icons.pause_rounded
+                                              : Icons.play_arrow_rounded,
+                                          key: ValueKey<bool>(isPlaying),
+                                          color: Colors.black,
+                                          size: 34,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: <Widget>[
-                                      _PlayerPill(
-                                        icon: isPlaying
-                                            ? Icons.pause_rounded
-                                            : Icons.play_arrow_rounded,
-                                        label: isPlaying ? 'Playing' : 'Paused',
-                                      ),
-                                      if (isBuffering)
-                                        const _PlayerPill(
-                                          icon: Icons.sync_rounded,
-                                          label: 'Buffering',
-                                        ),
-                                      if (provider != null)
-                                        _PlayerPill(
-                                          icon: Icons.storage_outlined,
-                                          label: provider!,
-                                        ),
-                                      if (looksHevc)
-                                        const _PlayerPill(
-                                          icon: Icons.warning_amber_rounded,
-                                          label: 'HEVC/x265',
-                                        ),
-                                      if ((torrentHash ?? '').isNotEmpty)
-                                        _PlayerPill(
-                                          icon: Icons.tag_outlined,
-                                          label: torrentHash!.substring(
-                                            0,
-                                            torrentHash!.length > 8
-                                                ? 8
-                                                : torrentHash!.length,
-                                          ),
-                                        ),
-                                    ],
+                                  const SizedBox(width: 18),
+                                  _OverlayControlButton(
+                                    icon: _skipForwardIcon(skipSeconds),
+                                    onTap: onForward,
                                   ),
                                 ],
                               ),
                             ),
-                            _MiniIconButton(
-                              icon: landscapeLocked
-                                  ? Icons.screen_lock_rotation_rounded
-                                  : Icons.screen_rotation_alt_rounded,
-                              onTap: onOrientation,
-                            ),
-                          ],
-                        ),
-                        const Spacer(),
-                        if (initialized && activeController != null)
-                          Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: <Widget>[
-                                _OverlayControlButton(
-                                  icon: _skipBackIcon(skipSeconds),
-                                  onTap: onBack,
+                          const Spacer(),
+                          Row(
+                            children: <Widget>[
+                              Text(
+                                positionLabel,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                const SizedBox(width: 18),
-                                _OverlayControlButton(
-                                  icon: isPlaying
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                  size: 66,
-                                  onTap: onPlayPause,
-                                ),
-                                const SizedBox(width: 18),
-                                _OverlayControlButton(
-                                  icon: _skipForwardIcon(skipSeconds),
-                                  onTap: onForward,
-                                ),
-                              ],
-                            ),
-                          ),
-                        const Spacer(),
-                        Row(
-                          children: <Widget>[
-                            Text(
-                              positionLabel,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
                               ),
-                            ),
-                            const Spacer(),
-                            if ((externalSubtitleName ?? '').isNotEmpty)
-                              Flexible(
-                                child: Text(
-                                  externalSubtitleName!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 10,
+                              const Spacer(),
+                              if ((externalSubtitleName ?? '').isNotEmpty)
+                                Flexible(
+                                  child: Text(
+                                    externalSubtitleName!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 10,
+                                    ),
                                   ),
                                 ),
+                            ],
+                          ),
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 3,
+                              thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6,
                               ),
-                          ],
-                        ),
-                        SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 6,
+                            ),
+                            child: Slider(
+                              value: progress,
+                              onChanged: onSeek,
+                              activeColor: AppColors.accent,
+                              inactiveColor: Colors.white24,
                             ),
                           ),
-                          child: Slider(
-                            value: progress,
-                            onChanged: onSeek,
-                            activeColor: AppColors.accent,
-                            inactiveColor: Colors.white24,
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              if (showFilesButton)
+                                _BottomToolButton(
+                                  icon: Icons.playlist_play_rounded,
+                                  label: hasFiles ? 'Episodes' : 'Files',
+                                  onTap: onChooseFile,
+                                ),
+                              if (showSubtitlesButton)
+                                _BottomToolButton(
+                                  icon: Icons.subtitles_rounded,
+                                  label: subtitleTrackCount > 0
+                                      ? 'Subs $subtitleTrackCount'
+                                      : 'Subs',
+                                  active: subtitlesVisible,
+                                  onTap: onSubtitle,
+                                ),
+                              if (showAudioButton)
+                                _BottomToolButton(
+                                  icon: Icons.graphic_eq_rounded,
+                                  label: audioTrackCount > 0
+                                      ? 'Audio $audioTrackCount'
+                                      : 'Audio',
+                                  onTap: onAudio,
+                                ),
+                              if (showSpeedButton)
+                                _BottomToolButton(
+                                  icon: Icons.speed_rounded,
+                                  label: 'Speed',
+                                  onTap: onSpeed,
+                                ),
+                              if (hasStreamUrl && showExternalButton)
+                                _BottomToolButton(
+                                  icon: Icons.open_in_new_rounded,
+                                  label: 'External',
+                                  onTap: onOpenExternal,
+                                ),
+                              _BottomToolButton(
+                                icon: saving
+                                    ? Icons.hourglass_top_rounded
+                                    : Icons.bookmark_add_outlined,
+                                label: saving ? 'Saving' : 'Save',
+                                onTap: onSaveProgress,
+                              ),
+                            ],
                           ),
-                        ),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: <Widget>[
-                            if (showFilesButton)
-                              _BottomToolButton(
-                                icon: Icons.playlist_play_rounded,
-                                label: hasFiles ? 'Episodes' : 'Files',
-                                onTap: onChooseFile,
-                              ),
-                            if (showSubtitlesButton)
-                              _BottomToolButton(
-                                icon: Icons.subtitles_rounded,
-                                label: subtitleTrackCount > 0
-                                    ? 'Subs $subtitleTrackCount'
-                                    : 'Subs',
-                                active: subtitlesVisible,
-                                onTap: onSubtitle,
-                              ),
-                            if (showAudioButton)
-                              _BottomToolButton(
-                                icon: Icons.graphic_eq_rounded,
-                                label: audioTrackCount > 0
-                                    ? 'Audio $audioTrackCount'
-                                    : 'Audio',
-                                onTap: onAudio,
-                              ),
-                            if (showSpeedButton)
-                              _BottomToolButton(
-                                icon: Icons.speed_rounded,
-                                label: 'Speed',
-                                onTap: onSpeed,
-                              ),
-                            if (hasStreamUrl && showExternalButton)
-                              _BottomToolButton(
-                                icon: Icons.open_in_new_rounded,
-                                label: 'External',
-                                onTap: onOpenExternal,
-                              ),
-                            _BottomToolButton(
-                              icon: saving
-                                  ? Icons.hourglass_top_rounded
-                                  : Icons.bookmark_add_outlined,
-                              label: saving ? 'Saving' : 'Save',
-                              onTap: onSaveProgress,
-                            ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
+            ),
           ],
         ),
       ),
@@ -2492,11 +2482,30 @@ class _SubtitleSheet extends StatelessWidget {
 }
 
 int _trackIndex(dynamic track) {
+  if (track is Map<dynamic, dynamic>) {
+    final dynamic value = track['index'];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
   try {
     return track.index as int;
   } catch (_) {
     return 0;
   }
+}
+
+String _trackType(dynamic track) {
+  if (track is Map<dynamic, dynamic>) {
+    return track['type']?.toString() ?? '';
+  }
+  return '';
+}
+
+bool _trackSelected(dynamic track) {
+  if (track is Map<dynamic, dynamic>) {
+    return track['selected'] == true;
+  }
+  return false;
 }
 
 String _trackLabel(dynamic track, String fallback) {
@@ -2516,17 +2525,26 @@ String _trackDetail(dynamic track) {
     if (_metadataValue(metadata, <String>['language']) != null)
       _metadataValue(metadata, <String>['language'])!,
   ];
+  final String codecName = _metadataValue(metadata, <String>['codec']) ?? '';
+  if (codecName.isNotEmpty) {
+    parts.add(codecName);
+  }
   try {
     final dynamic codec = track.codec;
-    final String codecName = codec.codec?.toString() ?? '';
-    if (codecName.isNotEmpty) {
-      parts.add(codecName);
+    final String legacyCodec = codec.codec?.toString() ?? '';
+    if (legacyCodec.isNotEmpty && !parts.contains(legacyCodec)) {
+      parts.add(legacyCodec);
     }
   } catch (_) {}
   return parts.isEmpty ? 'Track #${_trackIndex(track)}' : parts.join(' · ');
 }
 
 Map<dynamic, dynamic> _trackMetadata(dynamic track) {
+  if (track is Map<dynamic, dynamic>) {
+    final dynamic metadata = track['metadata'];
+    if (metadata is Map<dynamic, dynamic>) return metadata;
+    return track;
+  }
   try {
     final dynamic metadata = track.metadata;
     if (metadata is Map<dynamic, dynamic>) {
@@ -2855,12 +2873,10 @@ class _OverlayControlButton extends StatelessWidget {
   const _OverlayControlButton({
     required this.icon,
     required this.onTap,
-    this.size = 46,
   });
 
   final IconData icon;
   final Future<void> Function() onTap;
-  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -2871,9 +2887,9 @@ class _OverlayControlButton extends StatelessWidget {
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: SizedBox(
-          width: size,
-          height: size,
-          child: Icon(icon, color: Colors.white, size: size * 0.58),
+          width: 46,
+          height: 46,
+          child: Icon(icon, color: Colors.white, size: 27),
         ),
       ),
     );

@@ -62,6 +62,13 @@ flutter {
 }
 
 dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.8.0'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.8.0'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.8.0'
+    implementation 'androidx.media3:media3-datasource:1.8.0'
+    implementation 'androidx.media3:media3-ui:1.8.0'
+    implementation 'androidx.media3:media3-common:1.8.0'
+    implementation 'io.github.abdallahmehiz:mpv-android-lib:0.1.12'
     implementation 'com.github.recloudstream.cloudstream:library-android:v4.7.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
     implementation 'com.squareup.okhttp3:okhttp:5.3.2'
